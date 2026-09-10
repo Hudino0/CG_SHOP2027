@@ -12,6 +12,93 @@ the plots agree with the verifier of the upload site.
 
 ---
 
+## Quick start
+
+Start here if the machine has nothing on it. You need **Python 3.11 or later**
+and **Git**. Nothing else.
+
+**Step 1. Install.** Do this one time.
+
+```powershell
+git clone https://github.com/Hudino0/CG_SHOP2027.git
+cd CG_SHOP2027
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+```
+
+On Linux or macOS, replace line 4 with `source .venv/bin/activate`.
+
+Activate the environment again in each new terminal. Then the command `cg27`
+works everywhere in the project.
+
+**Step 2. Get the instances.**
+
+```bash
+cg27 fetch
+```
+
+This writes 75 example instances into `data/instances/`. The repository does
+not carry them, so this step is necessary after each new clone.
+
+**Step 3. Solve one instance and watch the solution.**
+
+```bash
+cg27 solve --filter iso_11k_6k_3p --run baseline
+cg27 animate iso_11k_6k_3p --run baseline --open
+```
+
+Your browser opens an HTML page. Press play. The three cutters move along their
+tours. The green area behind them is the part of the region that they covered.
+
+**Step 4. Do the same for all 75 instances.**
+
+```bash
+cg27 index -j 8
+cg27 solve -j 8 --run baseline
+cg27 verify --run baseline
+cg27 render -j 8
+cg27 render -j 8 --run baseline
+cg27 gallery
+```
+
+Then start a small server and open <http://localhost:8731/gallery.html>:
+
+```bash
+python -m http.server 8731 --directory out
+```
+
+### How long each step takes
+
+These times come from a clean clone on Windows, with 8 workers:
+
+| Step | Time |
+|---|---|
+| `git clone` | 1 s |
+| `python -m venv` and `pip install -e .` | 32 s |
+| `cg27 fetch` | 3 s |
+| `cg27 index -j 8` | 5 s |
+| `cg27 solve -j 8` (75 instances) | 4 s |
+| `cg27 verify` | 6 s |
+| `cg27 render -j 8` | 14 s |
+| `cg27 render -j 8 --run baseline` | 14 s |
+| `cg27 gallery` | 6 s |
+| `cg27 animate` (one instance, 80 frames) | 21 s |
+
+The full set uses 2.4 MB in `data/` and 17 MB in `out/`.
+
+### Which viewer to use
+
+| You want to see | Use | Needs a server |
+|---|---|---|
+| One route, over time | `cg27 animate` | No. The page holds every frame. |
+| All instances, side by side | `cg27 gallery` | Yes. The images sit in other files. |
+
+The animation page loads the icons of its buttons from the internet. Without a
+connection the icons disappear, but the buttons still work.
+
+---
+
 ## 1. The problem
 
 You get three things:
@@ -104,13 +191,10 @@ solver. Use one run for each experiment.
 
 ## 4. How to run it
 
-Install the package one time:
+The **Quick start** above gives the shortest path. This section explains each
+command and the options that matter.
 
-```bash
-python -m venv .venv && .venv/Scripts/python -m pip install -e .
-```
-
-Then run the pipeline:
+The full pipeline:
 
 ```bash
 cg27 fetch                          # download the example instances
