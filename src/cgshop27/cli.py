@@ -255,20 +255,41 @@ def cmd_animate(args: argparse.Namespace) -> int:
     from .render import animate_solution
 
     config.ensure_dirs()
-    path = catalog.find_instance(args.instance, args.instances)
-    instance = catalog.load(path)
-    solution_path = evaluate.solution_path(args.run, instance.instance_uid)
-    if not solution_path.is_file():
-        print(f"no solution at {solution_path}", file=sys.stderr)
+    if args.instance:
+        paths = [catalog.find_instance(args.instance, args.instances)]
+    else:
+        paths = _select(
+            catalog.instance_paths(args.instances), args.filter, args.limit
+        )
+    if not paths:
+        print("no instances selected", file=sys.stderr)
         return 1
-    target = animate_solution(
-        instance,
-        read_solution(solution_path),
-        run=args.run,
-        max_frames=args.frames,
-        fps=args.fps,
-    )
-    print(target)
+
+    written = []
+    for path in paths:
+        instance = catalog.load(path)
+        solution_path = evaluate.solution_path(args.run, instance.instance_uid)
+        if not solution_path.is_file():
+            print(f"no solution at {solution_path}", file=sys.stderr)
+            continue
+        target = animate_solution(
+            instance,
+            read_solution(solution_path),
+            run=args.run,
+            fmt=args.format,
+            max_frames=args.frames,
+            fps=args.fps,
+        )
+        size = target.stat().st_size
+        print(f"{target}  ({size / 1e6:.1f} MB)")
+        written.append(target)
+
+    if not written:
+        return 1
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(written[0].as_uri())
     return 0
 
 
@@ -383,12 +404,19 @@ def build_parser() -> argparse.ArgumentParser:
                         help="render this run's solutions instead of the instances")
     render.set_defaults(func=cmd_render)
 
-    animate = subparsers.add_parser("animate", help="write a GIF of one solution")
-    animate.add_argument("instance")
-    animate.add_argument("--run", default="boustrophedon")
-    animate.add_argument("--frames", type=int, default=160)
+    animate = subparsers.add_parser("animate", help="animate a run's tours over time")
+    animate.add_argument("instance", nargs="?", default=None,
+                         help="one instance; omit it and use --filter for a batch")
+    animate.add_argument("--run", default="baseline", help="run to animate")
+    animate.add_argument("--format", choices=config.ANIMATION_FORMATS, default="html",
+                         help="html has play, pause and a time slider; gif travels well")
+    animate.add_argument("--frames", type=int, default=160,
+                         help="frame budget; more frames means a finer stride")
     animate.add_argument("--fps", type=int, default=12)
+    animate.add_argument("--open", action="store_true", help="open the first result")
     animate.add_argument("--instances", type=Path, default=None)
+    animate.add_argument("--filter", default=None)
+    animate.add_argument("--limit", type=int, default=None)
     animate.set_defaults(func=cmd_animate)
 
     page = subparsers.add_parser("gallery", help="build out/gallery.html")

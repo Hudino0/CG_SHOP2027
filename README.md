@@ -79,7 +79,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/config.py` | Holds all paths and the download URL. |
 | `src/cgshop27/catalog.py` | Reads instances. Computes the size numbers and a lower bound. |
 | `src/cgshop27/evaluate.py` | Checks solutions. Compares runs. Makes the upload file. |
-| `src/cgshop27/render.py` | Writes PNG images and GIF animations. |
+| `src/cgshop27/render.py` | Writes PNG images and animations (HTML or GIF). |
 | `src/cgshop27/gallery.py` | Writes one HTML page to browse all instances. |
 | `src/cgshop27/solvers/boustrophedon.py` | The baseline solver. |
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
@@ -94,7 +94,8 @@ The pipeline writes into these directories. Git ignores all of them.
 | `out/catalog.csv` | One line for each instance, with all size numbers. |
 | `out/verdicts.json` | Result, objective and gap for each solution. |
 | `out/gallery.html` | The HTML page to browse the instances. |
-| `out/renders/`, `out/animations/` | The images and the animations. |
+| `out/renders/` | The PNG images. |
+| `out/animations/` | The animations. |
 
 A **run** is one directory of solutions. It is normally the output of one
 solver. Use one run for each experiment.
@@ -119,9 +120,46 @@ cg27 verify --score                 # check the solutions and score them
 cg27 render -j 8                    # draw the instances
 cg27 render -j 8 --run baseline     # draw the solutions of one run
 cg27 gallery --open                 # write and open out/gallery.html
-cg27 animate iso_11k_6k_3p --run baseline
+cg27 animate iso_11k_6k_3p --run baseline --open   # watch the tours
 cg27 submit --run baseline          # write out/submission_baseline.zip
 ```
+
+### Watch the tours over time
+
+The command `cg27 animate` shows the cutters as they move. It reads a run from
+`data/solutions/`. Therefore it works for **every** solver you write, not only
+for the baseline. You do not need to change it.
+
+There are two formats:
+
+| Format | Use it for |
+|---|---|
+| `--format html` | Study one route. It has play, pause, step, speed and a time slider. |
+| `--format gif` | Share the result. One file, but no controls. |
+
+```bash
+cg27 animate iso_11k_6k_3p --run baseline --format html --open
+cg27 animate iso_11k_6k_3p --run baseline --format gif
+cg27 animate --filter iso_ --limit 5 --run baseline   # a batch
+```
+
+The animation shows two things at the same time:
+
+- Where each cutter is now. Each cutter has its own colour.
+- Which cells the cutters already covered. This area is green and it grows.
+
+Use the animation to find errors. If a solver leaves a hole, you see **when**
+the cutters passed near it and **why** they missed it.
+
+Two limits to know:
+
+- All cutters move at one unit for each step. The animation stops when the
+  longest tour ends.
+- `--frames` sets the number of frames. A long tour in few frames jumps a large
+  distance between frames. The green area stays exact, because the code stamps
+  every position in between. Choose small instances, or raise `--frames`.
+
+An HTML file of 120 frames is near 8 MB. Do not commit these files.
 
 Use `--filter` and `--limit` to work on few instances. This makes each test
 fast:

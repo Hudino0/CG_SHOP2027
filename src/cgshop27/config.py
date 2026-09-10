@@ -23,6 +23,10 @@ EXAMPLE_INSTANCES_URL = (
     "cgshop_2027_example_instances"
 )
 
+#: What `cg27 animate` can write. GIF travels well; HTML is the one to study
+#: a route with, because it has play, pause and a time slider.
+ANIMATION_FORMATS = ("html", "gif")
+
 INSTANCE_SUFFIX = ".instance.json"
 SOLUTION_SUFFIX = ".solution.json"
 
