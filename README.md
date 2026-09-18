@@ -169,6 +169,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/render.py` | Writes PNG images and animations (HTML or GIF). |
 | `src/cgshop27/gallery.py` | Writes one HTML page to browse all instances. |
 | `src/cgshop27/solvers/boustrophedon.py` | The baseline solver. |
+| `src/cgshop27/solvers/fekete.py` | The solver of Fekete et al. (2023). See 5.5. |
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
 | `src/cgshop27/cli.py` | The `cg27` command and its 8 sub-commands. |
 
@@ -337,12 +338,84 @@ can never enter an upload file.
 
 ---
 
+### 5.5 The solver of Fekete et al.
+
+The solver `fekete` uses the method of this paper:
+
+> S. P. Fekete, D. Krupke, M. Perk, C. Rieck, C. Scheffer. *The Lawn Mowing
+> Problem: From Algebra to Algorithms.* ESA 2023. arXiv:2307.01092.
+
+The paper mows a polyomino with a disk. The cutters of this contest are
+discrete disks: squares (`s`), diamonds (`l`), rounded squares (`p`, `d`, `c`).
+Thus the method applies almost directly.
+
+The solver does these steps:
+
+1. **Blocks.** It cuts the region into square blocks of side `s`. A block is a
+   "pixel" of the paper. It uses the grid offset that gives the fewest blocks
+   (paper, 5.1.1).
+2. **Puzzle pieces.** A piece is the shortest path through a block, from one
+   side to another side, that covers the block. A straight piece costs `s`. A
+   turn or a U-turn costs more: this is the **turn cost**. The paper derives the
+   pieces by hand for a disk. The solver computes them for any cutter: it tries
+   paths with 0, 1 and 2 corner points, shortest first. It also computes pieces
+   for blocks at the border, which contain only part of the region.
+3. **Tour on the blocks** (paper, step A). It makes three start tours: a
+   Warnsdorff walk, a tour along rows and a tour along columns. It keeps the
+   best one.
+4. **Improve the tour** (paper, step C, "TSP_Turn"). 2-opt and Or-opt moves
+   use the true cost, turn cost included. Then a large neighbourhood search
+   removes the blocks in a small window and puts them back (paper, 5.1.4).
+5. **k tours.** It cuts the tour into `k` closed tours of equal cost. Then it
+   moves blocks from the longest tour into its neighbours, and improves the
+   longest tour again.
+6. **Prune.** It checks the exact coverage. It removes a block visit, or it
+   replaces a covering piece by a plain path, if the neighbours already cover
+   the cells.
+
+The block side `s` goes from the largest square inside the cutter (the
+"TSP_Small" of the paper) to the width of the cutter ("TSP_Cov"). The solver
+tries each size and keeps the best result. The largest size gets half of the
+time, because it wins almost always. This agrees with the paper.
+
+Two differences from the paper:
+
+- The paper uses Concorde for step A and Gurobi for step C. This solver uses
+  only Python and NumPy. The local search and the LNS replace the integer
+  program.
+- The paper makes one tour. This solver makes `k` tours and makes the longest
+  one short.
+
+Run it with a time limit for each instance. The default is 30 s:
+
+```bash
+cg27 solve -j 8 --solver fekete --run fekete --time-limit 20
+cg27 verify --run baseline --run fekete
+```
+
+Result on the 75 example instances, with 20 s for each instance and 8 workers
+(3 min 20 s in total):
+
+| Measure | `boustrophedon` | `fekete` |
+|---|---|---|
+| Valid solutions | 75 of 75 | 75 of 75 |
+| Gap to the lower bound (median) | 2.19 × | 1.64 × |
+| Gap to the lower bound (minimum) | 1.16 × | 1.12 × |
+| Gap to the lower bound (maximum) | 4.31 × | 3.00 × |
+| Local score (75 is the maximum) | 47.7 | 75.0 |
+
+The longest tour of `fekete` is 23 % shorter than the baseline (median). It
+is never longer. The gain is smallest (2 % to 4 %) on large, compact regions
+with the `p` cutter. There, the straight bands of the baseline are already
+close to good.
+
 ## 6. What is next
 
 The baseline is a reference point. It is not a competitive solver. These are
 the three best directions, in order of expected gain.
 
-**Direction 1 — Solve the set cover first.**
+**Direction 1 — Solve the set cover first.** *Done in part: see the solver
+`fekete` (5.5).*
 Section 2 shows that coverage is a set cover problem on integer points.
 Compute a small set of anchor points that covers the region. Then find a short
 tour through that set. This is the method of Fekete et al. (ALENEX 2023, ESA

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import inspect
 import json
 import shutil
 import sys
@@ -74,14 +75,14 @@ def _describe_worker(path: Path) -> catalog.InstanceStats:
     return catalog.describe(path)
 
 
-def _solve_worker(job: tuple[str, str, str]) -> tuple[str, int, bool, str]:
+def _solve_worker(job: tuple[str, str, str, dict]) -> tuple[str, int, bool, str]:
     """Solve one instance and write the solution. Returns a summary row."""
-    path_text, solver_name, run = job
+    path_text, solver_name, run, options = job
     from cgshop2027_pyutils.verify import check_for_errors
 
     path = Path(path_text)
     instance = catalog.load(path)
-    solution = SOLVERS[solver_name](instance)
+    solution = SOLVERS[solver_name](instance, **options)
     errors = check_for_errors(instance, solution)
     if not errors:
         evaluate.write_solution(solution, run)
@@ -178,7 +179,13 @@ def cmd_solve(args: argparse.Namespace) -> int:
     if args.clean:
         shutil.rmtree(config.SOLUTIONS / run, ignore_errors=True)
 
-    jobs = [(str(p), args.solver, run) for p in paths]
+    options = {}
+    if args.time_limit is not None:
+        if "time_limit" not in inspect.signature(SOLVERS[args.solver]).parameters:
+            print(f"solver {args.solver!r} takes no --time-limit", file=sys.stderr)
+            return 1
+        options["time_limit"] = args.time_limit
+    jobs = [(str(p), args.solver, run, options) for p in paths]
     results = _map(_solve_worker, jobs, args.jobs, f"solving with {args.solver}")
 
     failed = [(uid, message) for uid, _, ok, message in results if not ok]
@@ -390,6 +397,8 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--solver", choices=sorted(SOLVERS), default="boustrophedon")
     solve.add_argument("--run", default=None, help="name of the output run")
     solve.add_argument("--clean", action="store_true", help="empty the run first")
+    solve.add_argument("--time-limit", type=float, default=None,
+                       help="seconds per instance, for solvers that take it")
     solve.set_defaults(func=cmd_solve)
 
     verify = subparsers.add_parser("verify", help="check runs and compare them")
