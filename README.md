@@ -171,7 +171,8 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/boustrophedon.py` | The baseline solver. |
 | `src/cgshop27/solvers/fekete.py` | The solver of Fekete et al. (2023). See 5.5. |
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 8 sub-commands. |
+| `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 9 sub-commands. |
 
 The pipeline writes into these directories. Git ignores all of them.
 
@@ -181,6 +182,7 @@ The pipeline writes into these directories. Git ignores all of them.
 | `data/solutions/<run>/` | The solution files. One directory for each run. |
 | `out/catalog.csv` | One line for each instance, with all size numbers. |
 | `out/verdicts.json` | Result, objective and gap for each solution. |
+| `out/overlap.json` | The overlap between the tours, for each solution. |
 | `out/gallery.html` | The HTML page to browse the instances. |
 | `out/renders/` | The PNG images. |
 | `out/animations/` | The animations. |
@@ -206,8 +208,33 @@ cg27 render -j 8                    # draw the instances
 cg27 render -j 8 --run baseline     # draw the solutions of one run
 cg27 gallery --open                 # write and open out/gallery.html
 cg27 animate iso_11k_6k_3p --run baseline --open   # watch the tours
+cg27 overlap -j 8 --run baseline    # how much the tours overlap
 cg27 submit --run baseline          # write out/submission_baseline.zip
 ```
+
+### Measure the overlap between the tours
+
+The command `cg27 overlap` looks at each tour on its own. It finds the region
+cells that the tour sweeps. Then it compares the tours:
+
+```bash
+cg27 overlap -j 8 --run fekete --run baseline
+```
+
+| Column | Meaning |
+|---|---|
+| `shared_%` | The part of the region that two or more tours sweep. |
+| `pairs_%` | The part of the region that both tours of a pair sweep. |
+| `own_shared_%` | For each tour: the part of its own cells that another tour also sweeps. |
+
+The command writes all values to `out/overlap.json`. Instances with one cutter
+have no overlap.
+
+Overlap is not always waste. The score uses only the longest tour. Overlap on
+a short tour costs nothing. On the 75 examples, `baseline` has no overlap: its
+bands do not touch. `fekete` has a median of 1.4 % and a maximum of 8.2 %.
+The overlap is at the borders between the zones of two cutters, and where one
+cutter crosses the zone of another cutter.
 
 ### Watch the tours over time
 

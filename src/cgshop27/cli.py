@@ -9,6 +9,7 @@ stages compose without passing paths around:
     cg27 verify --run ... # feasibility and the gap to the lower bound
     cg27 render           # PNGs for instances and for a run
     cg27 gallery          # out/gallery.html tying it all together
+    cg27 overlap          # how much of the region several cutters sweep
 """
 
 from __future__ import annotations
@@ -92,6 +93,16 @@ def _solve_worker(job: tuple[str, str, str, dict]) -> tuple[str, int, bool, str]
         not errors,
         errors[0] if errors else "",
     )
+
+
+def _overlap_worker(job: tuple[str, str, str]) -> dict:
+    from cgshop2027_pyutils.io import read_solution
+
+    from .overlap import measure
+
+    instance_path, solution_path, run = job
+    instance = catalog.load(Path(instance_path))
+    return measure(instance, read_solution(Path(solution_path)), run).as_row()
 
 
 def _render_instance_worker(path_text: str) -> str:
@@ -341,6 +352,55 @@ def cmd_gallery(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_overlap(args: argparse.Namespace) -> int:
+    config.ensure_dirs()
+    index = _instance_index(
+        _select(catalog.instance_paths(args.instances), args.filter, args.limit)
+    )
+    runs = args.run or evaluate.run_names()
+    rows = []
+    for run in runs:
+        jobs = []
+        for solution_path in evaluate.run_solutions(run):
+            uid = solution_path.name.removesuffix(config.SOLUTION_SUFFIX)
+            if uid in index:
+                jobs.append((str(index[uid]), str(solution_path), run))
+        if not jobs:
+            print(f"run {run!r}: no solutions", file=sys.stderr)
+            continue
+        found = _map(_overlap_worker, jobs, args.jobs, f"measuring {run}")
+        rows.extend(found)
+
+        several = sorted((r for r in found if r["cutters"] > 1), key=lambda r: -r["shared"])
+        print(f"\nrun {run!r}: {len(several)} instances with 2 or more cutters")
+        if not several:
+            continue
+        shares = sorted(r["shared"] for r in several)
+        print(
+            f"  region swept by 2+ cutters: min {shares[0]}% / "
+            f"median {shares[len(shares) // 2]}% / max {shares[-1]}%"
+        )
+        table = [
+            {
+                "instance_uid": r["instance_uid"],
+                "k": r["cutters"],
+                "shared_%": r["shared"],
+                "pairs_%": "  ".join(f"{k}:{v}" for k, v in r["pairs"].items()),
+                "own_shared_%": " / ".join(str(v) for v in r["own"]),
+            }
+            for r in several
+        ]
+        _print_table(list(table[0]), table, limit=args.show, more_in="overlap.json")
+
+    if not rows:
+        print("nothing measured -- run `cg27 solve` first", file=sys.stderr)
+        return 1
+    target = config.OUT / "overlap.json"
+    target.write_text(json.dumps(rows, indent=1), encoding="utf-8")
+    print(f"\n{len(rows)} rows -> {target}")
+    return 0
+
+
 def cmd_submit(args: argparse.Namespace) -> int:
     target = Path(args.output or config.OUT / f"submission_{args.run}.zip")
     path, count = evaluate.build_submission(args.run, target)
@@ -348,7 +408,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_table(columns: list[str], rows: list[dict], limit: int = 10) -> None:
+def _print_table(
+    columns: list[str], rows: list[dict], limit: int = 10, more_in: str = "catalog.csv"
+) -> None:
     if not rows or limit == 0:
         return
     shown = rows[:limit]
@@ -362,7 +424,7 @@ def _print_table(columns: list[str], rows: list[dict], limit: int = 10) -> None:
         cells = [f"{row[c]:,}" if isinstance(row[c], int) else str(row[c]) for c in columns]
         print("  ".join(cell.ljust(w) for cell, w in zip(cells, widths)))
     if len(rows) > limit:
-        print(f"... {len(rows) - limit} more (see catalog.csv)")
+        print(f"... {len(rows) - limit} more (see {more_in})")
 
 
 # -- argument parsing ------------------------------------------------------
@@ -434,6 +496,13 @@ def build_parser() -> argparse.ArgumentParser:
     page.add_argument("--reindex", action="store_true", help="recompute the catalog")
     page.add_argument("--open", action="store_true", help="open in a browser")
     page.set_defaults(func=cmd_gallery)
+
+    over = subparsers.add_parser("overlap", help="measure how much the tours overlap")
+    common(over)
+    over.add_argument("--run", action="append", default=None,
+                      help="run to measure (repeat it; default: all runs)")
+    over.add_argument("--show", type=int, default=10, help="rows to print per run")
+    over.set_defaults(func=cmd_overlap)
 
     submit = subparsers.add_parser("submit", help="pack a run into an upload zip")
     submit.add_argument("--run", default="boustrophedon")
