@@ -19,21 +19,25 @@ squares), so the method carries over nearly one to one. What changes:
   inside the cutter (the paper's TSP_Small: the center point alone covers a
   block and turns are free) up to the cutter width (the paper's TSP_Cov:
   straight passes cover a block, turns need puzzle pieces). The grid offset is
-  the one with the fewest blocks (Section 5.1.1). Every size is tried and the
-  best result kept.
+  the one with the fewest blocks (Section 5.1.1). Every size gets a short
+  race; the best one gets the rest of the time and goes on from its tour.
 - Puzzle pieces are computed, not derived by hand: for each block content and
   each pair of sides, `_Pieces` finds the shortest lattice path with up to two
   intermediate points whose sweep covers the block, by enumerating candidates
   in order of length. It works for any cutter shape.
 - Step A uses a Warnsdorff walk that prefers to go straight, not Concorde.
 - Step C uses 2-opt and Or-opt moves evaluated against the exact tour cost
-  (block pieces included), not the Gurobi IP inside an LNS.
+  (block pieces included), not the Gurobi IP inside an LNS. The piece lengths
+  and the whole search run compiled (`_blockls`).
 - The contest wants `k` tours and scores the longest one. The single tour is
   cut into `k` balanced pieces (tour splitting), each piece is closed and
   improved again, and blocks move between tours to balance them.
 - A last pass uses the exact coverage: it drops a block visit, or swaps its
   covering piece for the plain path, when the neighbours already sweep its
   cells. Pieces are conservative by design, so this recovers overlap.
+- Then the tours leave the blocks behind: `refine` shortens the lattice walks
+  themselves against the exact coverage of all tours (shortcuts, and lanes
+  and U-turns that slide toward the border).
 
 Every result is checked with the official validator before it is returned.
 """
@@ -42,7 +46,6 @@ from __future__ import annotations
 
 import random
 import time
-from collections import deque
 from itertools import product
 
 import numpy as np
@@ -51,7 +54,14 @@ from cgshop2027_pyutils.schemas import CGSHOP2027Instance, CGSHOP2027Solution
 from cgshop2027_pyutils.verify import SolutionValidator
 
 from ..catalog import cutter_cells, region_cells
+from ._blockls import Tour, order_cost, piece_table, seed_rng
 from ._tour import Point, make_tour
+from .refine import Refiner
+
+# The part of each block size's time that goes to the lattice refiner.
+REFINE_SHARE = 0.15
+# The part of the time that the block sizes race for before the best goes on.
+RACE_SHARE = 0.35
 
 # The sides of a block where a piece starts or ends. `J` is the block's own
 # center: the piece of a block whose tour neighbour is not a grid neighbour.
@@ -270,28 +280,36 @@ class _Pieces:
 # -- the block grid and the tour cost --------------------------------------
 
 
+def _tiles(mask: np.ndarray, s: int, shift_x: int, shift_y: int) -> np.ndarray:
+    """The region cut into s x s blocks, shifted by (shift_x, shift_y)."""
+    height, width = mask.shape
+    rows = -(-(height + shift_y) // s)
+    cols = -(-(width + shift_x) // s)
+    padded = np.zeros((rows * s, cols * s), dtype=bool)
+    padded[shift_y : shift_y + height, shift_x : shift_x + width] = mask
+    return padded.reshape(rows, s, cols, s).transpose(0, 2, 1, 3)
+
+
+def grid_shifts(region: CellSet, s: int) -> list[tuple[int, Point]]:
+    """Every grid offset with its block count, fewest blocks first."""
+    counts = []
+    for shift_y in range(s):
+        for shift_x in range(s):
+            tiles = _tiles(region.mask, s, shift_x, shift_y)
+            counts.append((int(tiles.any(axis=(2, 3)).sum()), (shift_x, shift_y)))
+    return sorted(counts)
+
+
 class _Model:
     """Blocks of one size, their puzzle pieces, and the exact tour cost."""
 
-    def __init__(self, region: CellSet, offsets: list[Point], s: int) -> None:
+    def __init__(self, region: CellSet, offsets: list[Point], s: int, shift: Point | None = None) -> None:
         self.s = s
         self.pieces = _Pieces(offsets, s)
-        mask = region.mask
-        height, width = mask.shape
-
-        # Section 5.1.1: the grid offset with the fewest blocks.
-        best = None
-        for shift_y in range(s):
-            for shift_x in range(s):
-                rows = -(-(height + shift_y) // s)
-                cols = -(-(width + shift_x) // s)
-                padded = np.zeros((rows * s, cols * s), dtype=bool)
-                padded[shift_y : shift_y + height, shift_x : shift_x + width] = mask
-                tiles = padded.reshape(rows, s, cols, s).transpose(0, 2, 1, 3)
-                count = int(tiles.any(axis=(2, 3)).sum())
-                if best is None or count < best[0]:
-                    best = (count, shift_x, shift_y, tiles)
-        _, shift_x, shift_y, tiles = best
+        # Section 5.1.1: the grid offset with the fewest blocks, unless given.
+        shifts = grid_shifts(region, s)
+        shift_x, shift_y = shift if shift is not None else shifts[0][1]
+        tiles = _tiles(region.mask, s, shift_x, shift_y)
         self.ox = region.origin[0] - shift_x
         self.oy = region.origin[1] - shift_y
 
@@ -318,6 +336,31 @@ class _Model:
         self.near8 = [self._around(v, eight) for v in range(self.n)]
         self._fill_isolated()
         self._length: dict[tuple[int, int, int], int] = {}
+        self.G = self._compile()
+
+    def _compile(self) -> tuple:
+        """Every piece length up front, and the arrays of the compiled search."""
+        table = piece_table(self.pieces, self.masks)
+        for mid, a, b in zip(*np.nonzero(table < 0)):
+            table[mid, a, b] = self.pieces.piece(self.masks[mid], int(a), int(b))[0]
+        for (mid, a, b), length in np.ndenumerate(table):
+            self._length[(mid, a, b)] = int(length)
+
+        def padded(lists: list[list[int]]) -> np.ndarray:
+            out = np.full((self.n, max(1, max(map(len, lists), default=1))), -1, dtype=np.int64)
+            for v, near in enumerate(lists):
+                out[v, : len(near)] = near
+            return out
+
+        bx = np.array(self.bx, dtype=np.int64)
+        by = np.array(self.by, dtype=np.int64)
+        grid = np.full((int(by.max()) + 1, int(bx.max()) + 1), -1, dtype=np.int64)
+        grid[by, bx] = np.arange(self.n)
+        mid = np.array(self.mid, dtype=np.int64)
+        return (bx, by, mid, table, np.int64(self.s), padded(self.near4), padded(self.near8), grid)
+
+    def tour(self, order: list[int]) -> Tour:
+        return Tour(self.G, self.n, order)
 
     def _around(self, v: int, steps) -> list[int]:
         x, y = self.bx[v], self.by[v]
@@ -363,6 +406,8 @@ class _Model:
             return 0
         if n == 1:
             return self.piece_length(order[0], J, J)
+        if n > 2:
+            return order_cost(self.G, np.asarray(order, dtype=np.int64))
         total = 0
         for i, v in enumerate(order):
             w = order[(i + 1) % n]
@@ -461,18 +506,20 @@ class _Model:
                 index, forward = tail, False
 
 
-# -- step C: local search against the exact cost ---------------------------
+# -- step C: local search against the exact cost (compiled in _blockls) ------
 
 
 class _Ring:
-    """A closed tour as an array with positions, for 2-opt and Or-opt."""
+    """A closed tour with positions, for the move costs of `_balance`.
+
+    The search itself (2-opt, Or-opt, LNS) runs compiled in `_blockls`.
+    """
 
     def __init__(self, model: _Model, order: list[int]) -> None:
         self.m = model
         self.t = list(order)
         self.n = len(order)
         self.pos = {v: i for i, v in enumerate(self.t)}
-        self.saved = 0  # total cost removed by the local search so far
 
     def succ(self, v: int) -> int:
         i = self.pos[v] + 1
@@ -483,54 +530,6 @@ class _Ring:
 
     def order(self) -> list[int]:
         return list(self.t)
-
-    def _reverse(self, i: int, j: int) -> None:
-        """Reverse positions i..j (cyclic, inclusive), or the shorter rest."""
-        n = self.n
-        m = (j - i) % n + 1
-        if 2 * m > n:
-            i, j, m = (j + 1) % n, (i - 1) % n, n - m
-        t, pos = self.t, self.pos
-        for _ in range(m // 2):
-            a, b = t[i], t[j]
-            t[i], t[j] = b, a
-            pos[b], pos[a] = i, j
-            i = i + 1 if i + 1 < n else 0
-            j = j - 1 if j > 0 else n - 1
-
-    def move2(self, a: int, b: int, c: int, d: int) -> None:
-        """Replace the edges (a, b) and (c, d) by (a, c) and (b, d)."""
-        if self.succ(a) == b:
-            self._reverse(self.pos[b], self.pos[c])
-        else:
-            self._reverse(self.pos[a], self.pos[d])
-
-    def delta(self, removed, added) -> int | None:
-        """Cost change of swapping edges, or None if the move is malformed."""
-        m = self.m
-        neighbours: dict[int, list[int]] = {}
-        try:
-            for x, y in removed:
-                for a, b in ((x, y), (y, x)):
-                    if a not in neighbours:
-                        neighbours[a] = [self.pred(a), self.succ(a)]
-                    neighbours[a].remove(b)
-            for x, y in added:
-                for a, b in ((x, y), (y, x)):
-                    if a not in neighbours:
-                        neighbours[a] = [self.pred(a), self.succ(a)]
-                    neighbours[a].append(b)
-        except ValueError:
-            return None
-        change = sum(m.ec(x, y) for x, y in added) - sum(m.ec(x, y) for x, y in removed)
-        for v, (u, w) in neighbours.items():
-            change += m.bc(v, u, w) - m.bc(v, self.pred(v), self.succ(v))
-        return change
-
-    def _bad(self, v: int) -> bool:
-        u, w = self.pred(v), self.succ(v)
-        m = self.m
-        return m.bc(v, u, w) > m.s or m.ec(u, v) > 0 or m.ec(v, w) > 0
 
     def insertion(self, v: int, c: int, d: int) -> int:
         """Cost change of putting `v` (not in the tour) between c and d."""
@@ -553,99 +552,6 @@ class _Ring:
             + m.bc(w, u, self.succ(w)) - m.bc(w, v, self.succ(w))
         )
 
-    def remove(self, v: int) -> None:
-        at = self.pos.pop(v)
-        del self.t[at]
-        self.n -= 1
-        for i in range(at, self.n):
-            self.pos[self.t[i]] = i
-
-    def restore(self, order: list[int]) -> None:
-        self.t = order
-        self.n = len(order)
-        self.pos = {v: i for i, v in enumerate(order)}
-
-    def insert(self, v: int, c: int) -> None:
-        """Put `v` right after `c`."""
-        at = self.pos[c] + 1
-        self.t.insert(at, v)
-        self.n += 1
-        for i in range(at, self.n):
-            self.pos[self.t[i]] = i
-
-    def optimize(self, deadline: float, seeds=None) -> None:
-        if self.n < 8:
-            return
-        if seeds is None:
-            queue = deque(v for v in self.t if self._bad(v))
-        else:
-            queue = deque(dict.fromkeys(seeds))
-        waiting = set(queue)
-        while queue and time.perf_counter() < deadline:
-            a = queue.popleft()
-            waiting.discard(a)
-            for v in self._improve(a):
-                if v not in waiting:
-                    waiting.add(v)
-                    queue.append(v)
-
-    def _improve(self, a: int) -> tuple[int, ...]:
-        m, pos = self.m, self.pos
-        # 2-opt, both ways round.
-        for b in m.near8[a]:
-            if b not in pos or b == a:
-                continue
-            a2, b2 = self.succ(a), self.succ(b)
-            if b != a2 and b2 != a:
-                change = self.delta(((a, a2), (b, b2)), ((a, b), (a2, b2)))
-                if change is not None and change < 0:
-                    self.move2(a, a2, b, b2)
-                    self.saved -= change
-                    return (a, a2, b, b2)
-            a1, b1 = self.pred(a), self.pred(b)
-            if b != a1 and b1 != a:
-                change = self.delta(((a1, a), (b1, b)), ((a1, b1), (a, b)))
-                if change is not None and change < 0:
-                    self.move2(a1, a, b1, b)
-                    self.saved -= change
-                    return (a, a1, b, b1)
-
-        # Or-opt: move a run of 1-3 blocks that starts or ends at `a`.
-        for size in (1, 2, 3):
-            if self.n < size + 4:
-                break
-            for forward in (True, False):
-                if size == 1 and not forward:
-                    continue
-                run = [a]
-                for _ in range(size - 1):
-                    run.append(self.succ(run[-1]) if forward else self.pred(run[-1]))
-                s1, s2 = (run[0], run[-1]) if forward else (run[-1], run[0])
-                inside = set(run)
-                p, nn = self.pred(s1), self.succ(s2)
-                for b in m.near4[a]:
-                    if b not in pos or b in inside:
-                        continue
-                    for c, d in ((b, self.succ(b)), (self.pred(b), b)):
-                        if c in inside or d in inside or d == p:
-                            continue
-                        for flip in ((False, True) if size > 1 else (False,)):
-                            added = (
-                                (p, nn),
-                                (c, s2) if flip else (c, s1),
-                                (s1, d) if flip else (s2, d),
-                            )
-                            change = self.delta(((p, s1), (s2, nn), (c, d)), added)
-                            if change is not None and change < 0:
-                                self.move2(p, s1, c, d)
-                                if c != nn:
-                                    self.move2(p, c, nn, s2)
-                                if not flip:
-                                    self.move2(c, s2, s1, d)
-                                self.saved -= change
-                                return (p, nn, c, d, s1, s2)
-        return ()
-
 
 def _lns(model: _Model, order: list[int], deadline: float, rng: random.Random) -> list[int]:
     """Large neighbourhood search, as in the paper's Section 5.1.4.
@@ -654,44 +560,18 @@ def _lns(model: _Model, order: list[int], deadline: float, rng: random.Random) -
     around it, put them back one by one at their cheapest place, and let the
     local search settle the neighbourhood. Keep the result unless it is
     worse; equal cost is accepted, so the tour can drift across plateaus.
+    The loop runs compiled (`_blockls.lns`) in batches that fit the deadline.
     """
-    ring = _Ring(model, order)
-    if ring.n < 12:
-        return ring.order()
-    while time.perf_counter() < deadline:
-        v = rng.choice(ring.t)
-        radius = rng.randint(1, 3)
-        window = [
-            w
-            for dx in range(-radius, radius + 1)
-            for dy in range(-radius, radius + 1)
-            if (w := model.index.get((model.bx[v] + dx, model.by[v] + dy))) in ring.pos
-        ]
-        if len(window) > ring.n - 8:
-            continue
-        snapshot = list(ring.t)
-        change = 0
-        for w in window:
-            change += ring.removal(w)
-            ring.remove(w)
-        rng.shuffle(window)
-        for w in window:
-            spots = [c for c in model.near8[w] if c in ring.pos] or [ring.t[0]]
-            choice = None
-            for c in spots:
-                for x, y in ((c, ring.succ(c)), (ring.pred(c), c)):
-                    step = ring.insertion(w, x, y)
-                    if choice is None or step < choice[0]:
-                        choice = (step, x)
-            change += choice[0]
-            ring.insert(w, choice[1])
-        seeds = window + [u for w in window for u in (ring.pred(w), ring.succ(w))]
-        before = ring.saved
-        ring.optimize(deadline, seeds)
-        change -= ring.saved - before
-        if change > 0:
-            ring.restore(snapshot)
-    return ring.order()
+    tour = model.tour(order)
+    if len(order) < 12:
+        return tour.order()
+    batch = 8
+    while (now := time.perf_counter()) < deadline:
+        tour.lns(batch)
+        spent = time.perf_counter() - now
+        # Aim for batches of about 20 ms, so the deadline is kept closely.
+        batch = max(1, min(4 * batch, int(batch * 0.02 / max(spent, 1e-4))))
+    return tour.order()
 
 
 # -- k tours ---------------------------------------------------------------
@@ -743,8 +623,9 @@ def _split(model: _Model, order: list[int], k: int) -> list[list[int]]:
 
     best = None
     starts = sorted(set(np.linspace(0, n - 1, min(n, 96)).astype(int).tolist()))
+    ceiling = model.cost(order) + model.s * n
     for start in starts:
-        low, high = 0, model.cost(order) + model.s * n
+        low, high = 0, ceiling
         found = None
         while low <= high:
             middle = (low + high) // 2
@@ -1029,42 +910,51 @@ def _block_sizes(cutter: CellSet) -> list[int]:
     return list(range(inside, min(height, width) + 1))
 
 
-def _pipeline(region, offsets, s, k, deadline, rng) -> tuple[list[list[Point]], dict]:
+def _pipeline(model: _Model, region, offsets, k, deadline, rng, warm=None):
+    """Steps A to C, the k tours and the pruning, for one block model.
+
+    `warm` is a single tour from an earlier call on the same model; the
+    search then goes on from it instead of starting over. Returns the paths,
+    the meta data and the single tour.
+    """
     start = time.perf_counter()
     budget = deadline - start
 
     def at(fraction: float) -> float:
         return start + fraction * budget
 
-    model = _Model(region, offsets, s)
+    seed_rng(rng.randrange(1 << 30))
 
-    # Step A from three starts, step C (local search) on each; keep the best.
-    starts = {
-        "warnsdorff": model.initial_order(),
-        "rows": model.strip_order(horizontal=True),
-        "columns": model.strip_order(horizontal=False),
-    }
-    initial = {name: model.cost(order) for name, order in starts.items()}
-    best = None
-    # The cheapest start nearly always stays the cheapest, so it goes first;
-    # the others only run while there is time.
-    for i, name in enumerate(sorted(starts, key=initial.__getitem__)):
-        if i and time.perf_counter() >= at(0.25):
-            break
-        ring = _Ring(model, starts[name])
-        ring.optimize(at(0.45 if i == 0 else 0.35))
-        cost = model.cost(ring.t)
-        if best is None or cost < best[0]:
-            best = (cost, name, ring.order())
-    _, chosen, order = best
+    if warm is None:
+        # Step A from three starts, step C (local search) on each; keep the best.
+        starts = {
+            "warnsdorff": model.initial_order(),
+            "rows": model.strip_order(horizontal=True),
+            "columns": model.strip_order(horizontal=False),
+        }
+        initial = {name: model.cost(order) for name, order in starts.items()}
+        best = None
+        # The cheapest start nearly always stays the cheapest, so it goes first;
+        # the others only run while there is time.
+        for i, name in enumerate(sorted(starts, key=initial.__getitem__)):
+            if i and time.perf_counter() >= at(0.25):
+                break
+            ring = model.tour(starts[name])
+            ring.optimize()
+            cost = ring.cost()
+            if best is None or cost < best[0]:
+                best = (cost, name, ring.order())
+        _, chosen, order = best
+    else:
+        initial, chosen, order = {}, "warm", list(warm)
     order = _lns(model, order, at(0.5), rng)
     single = model.cost(order)
 
     # k tours: split, then take turns balancing and improving the longest.
     tours = _split(model, order, k)
     for i, tour in enumerate(tours):
-        part = _Ring(model, tour)
-        part.optimize(at(0.5 + 0.05 * (i + 1) / len(tours)))
+        part = model.tour(tour)
+        part.optimize()
         tours[i] = part.order()
     while time.perf_counter() < at(0.85):
         if len(tours) > 1:
@@ -1078,14 +968,14 @@ def _pipeline(region, offsets, s, k, deadline, rng) -> tuple[list[list[Point]], 
     final = pruner.tours()
     paths = [pruner.waypoints(tour) for tour in final]
     meta = {
-        "block_size": s,
+        "block_size": model.s,
         "blocks": model.n,
         "initial_tours": initial,
         "start": chosen,
         "single_tour": single,
         "tour_blocks": [len(t) for t in final],
     }
-    return paths, meta
+    return paths, meta, order
 
 
 def _repair(validator: SolutionValidator, instance, paths, offsets) -> list[list[Point]]:
@@ -1115,17 +1005,46 @@ def _as_solution(instance, paths, meta) -> CGSHOP2027Solution:
     return CGSHOP2027Solution(instance_uid=instance.instance_uid, tours=tours, meta=meta)
 
 
+def _refine(region, offsets, paths, deadline, rng) -> list[list[Point]]:
+    """Shorten the tours with the exact-coverage local search of `refine`."""
+    refiner = Refiner(region.mask, region.origin, offsets, paths)
+    refiner.run(deadline, rng)
+    return refiner.paths()
+
+
+_warm = False
+
+
+def _warm_up(offsets: list[Point], s: int) -> None:
+    """Run every compiled kernel once on a tiny square, outside the clock.
+
+    The first call of a kernel compiles it, or loads it from numba's cache.
+    Doing that here keeps compile time out of the time limit.
+    """
+    global _warm
+    if _warm:
+        return
+    side = 4 * s
+    square = CellSet(np.ones((side, side), dtype=bool), (0, 0))
+    model = _Model(square, offsets, s)
+    rng = random.Random(0)
+    paths, _, _ = _pipeline(model, square, offsets, 1, time.perf_counter() + 0.05, rng)
+    _refine(square, offsets, paths, time.perf_counter() + 0.05, rng)
+    _warm = True
+
+
 def solve(
-    instance: CGSHOP2027Instance, time_limit: float = 30.0, seed: int = 0
+    instance: CGSHOP2027Instance, time_limit: float = 30.0, seed: int = 0, refine: bool = True
 ) -> CGSHOP2027Solution:
     """Tile-based mowing (TSP_Cov + turn cost), best over the block sizes.
 
     `time_limit` is in seconds and is shared among the block sizes.
     """
-    began = time.perf_counter()
     region = region_cells(instance)
     cutter = cutter_cells(instance)
     offsets = list(cutter.cells())
+    _warm_up(offsets, _block_sizes(cutter)[-1])
+    began = time.perf_counter()
     k = instance.number_of_cutters
     validator = SolutionValidator(instance)
     rng = random.Random(seed)
@@ -1133,21 +1052,41 @@ def solve(
     if len(region) == 0:
         return _as_solution(instance, [], {"algorithm": "fekete"})
 
-    # The largest blocks (TSP_Cov) win in the paper and here; they get half
-    # the time, and the smaller sizes share the rest.
-    sizes = _block_sizes(cutter)[::-1]
-    shares = [1.0] if len(sizes) == 1 else [0.5] + [0.5 / (len(sizes) - 1)] * (len(sizes) - 1)
-    best, spent = None, 0.0
-    for s, share in zip(sizes, shares):
-        spent += share
-        deadline = began + time_limit * spent
-        paths, meta = _pipeline(region, offsets, s, k, deadline, rng)
+    def attempt(model: _Model, deadline: float, warm=None):
+        """One run of the pipeline, repaired if needed, then refined."""
+        share = deadline - time.perf_counter()
+        paths, meta, order = _pipeline(
+            model, region, offsets, k, deadline - REFINE_SHARE * share, rng, warm
+        )
         solution = _as_solution(instance, paths, meta)
         if validator.check_for_errors(solution):
             paths = _repair(validator, instance, paths, offsets)
             meta["repaired"] = True
             solution = _as_solution(instance, paths, meta)
+        if refine:
+            refined = _refine(region, offsets, paths, deadline, rng)
+            candidate = _as_solution(instance, refined, meta)
+            if not validator.check_for_errors(candidate):
+                meta["unrefined"] = solution.max_tour_length
+                solution = candidate
+        return solution, meta, order
+
+    # Every block size gets a short race; the winner gets the rest of the
+    # time and goes on from its race tour. The largest blocks (TSP_Cov) win
+    # most often, as in the paper, but not always.
+    sizes = _block_sizes(cutter)[::-1]
+    race = RACE_SHARE / len(sizes) if len(sizes) > 1 else 1.0
+    best, results = None, {}
+    for i, s in enumerate(sizes):
+        model = _Model(region, offsets, s)
+        solution, meta, order = attempt(model, began + time_limit * race * (i + 1))
+        results[s] = (solution.max_tour_length, model, order)
         if best is None or solution.max_tour_length < best[0].max_tour_length:
+            best = (solution, meta)
+    if len(sizes) > 1:
+        _, model, order = min(results.values(), key=lambda r: r[0])
+        solution, meta, _ = attempt(model, began + time_limit, warm=order)
+        if solution.max_tour_length < best[0].max_tour_length:
             best = (solution, meta)
 
     solution, meta = best

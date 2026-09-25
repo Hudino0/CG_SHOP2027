@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
   "cgshop2027-pyutils>=0.1.0",
   "numpy",
+  "numba",
   "matplotlib",
   "pillow",
 ]

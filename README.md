@@ -170,6 +170,8 @@ You can test any idea against this model directly.
 | `src/cgshop27/gallery.py` | Writes one HTML page to browse all instances. |
 | `src/cgshop27/solvers/boustrophedon.py` | The baseline solver. |
 | `src/cgshop27/solvers/fekete.py` | The solver of Fekete et al. (2023). See 5.5. |
+| `src/cgshop27/solvers/_blockls.py` | The compiled parts of `fekete`: puzzle pieces, 2-opt, Or-opt and LNS. |
+| `src/cgshop27/solvers/refine.py` | Shortens finished tours cell by cell. See 5.6. |
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
 | `src/cgshop27/cli.py` | The `cg27` command and its 9 sub-commands. |
@@ -399,19 +401,27 @@ The solver does these steps:
 6. **Prune.** It checks the exact coverage. It removes a block visit, or it
    replaces a covering piece by a plain path, if the neighbours already cover
    the cells.
+7. **Refine.** It leaves the blocks and shortens the tours cell by cell. See
+   5.6.
 
 The block side `s` goes from the largest square inside the cutter (the
-"TSP_Small" of the paper) to the width of the cutter ("TSP_Cov"). The solver
-tries each size and keeps the best result. The largest size gets half of the
-time, because it wins almost always. This agrees with the paper.
+"TSP_Small" of the paper) to the width of the cutter ("TSP_Cov"). Each size
+gets a short race (35 % of the time in total). The best size gets the rest of
+the time and continues from its race tour. The largest size wins in most
+cases. This agrees with the paper.
 
-Two differences from the paper:
+Three differences from the paper:
 
 - The paper uses Concorde for step A and Gurobi for step C. This solver uses
-  only Python and NumPy. The local search and the LNS replace the integer
+  Python, NumPy and numba. The local search and the LNS replace the integer
   program.
 - The paper makes one tour. This solver makes `k` tours and makes the longest
   one short.
+- Step 7 is not in the paper.
+
+The puzzle pieces and the local search run as compiled code (numba). The
+first run compiles them and keeps them in a cache. This takes approximately
+30 s one time. The time limit does not include it.
 
 Run it with a time limit for each instance. The default is 30 s:
 
@@ -421,20 +431,76 @@ cg27 verify --run baseline --run fekete
 ```
 
 Result on the 75 example instances, with 20 s for each instance and 8 workers
-(3 min 20 s in total):
+(approximately 3.5 min in total). The column "first version" is the solver
+before the changes of 5.6:
 
-| Measure | `boustrophedon` | `fekete` |
+| Measure | `boustrophedon` | `fekete`, first version | `fekete` |
+|---|---|---|---|
+| Valid solutions | 75 of 75 | 75 of 75 | 75 of 75 |
+| Gap to the lower bound (median) | 2.19 × | 1.64 × | 1.55 × |
+| Gap to the lower bound (minimum) | 1.16 × | 1.12 × | 1.07 × |
+| Gap to the lower bound (maximum) | 4.31 × | 3.00 × | 2.68 × |
+| Local score (75 is the maximum) | 41.6 | 64.9 | 75.0 |
+
+The longest tour of `fekete` is 28 % shorter than the baseline (median). The
+changes of 5.6 make it 7 % shorter again (median, maximum 18 %). It is never
+longer than the first version.
+
+### 5.6 Where the length goes, and what I changed
+
+I measured the solutions of the first version of `fekete`. These are the
+results (medians over the 75 instances):
+
+| Measurement | Value | What it shows |
 |---|---|---|
-| Valid solutions | 75 of 75 | 75 of 75 |
-| Gap to the lower bound (median) | 2.19 × | 1.64 × |
-| Gap to the lower bound (minimum) | 1.16 × | 1.12 × |
-| Gap to the lower bound (maximum) | 4.31 × | 3.00 × |
-| Local score (75 is the maximum) | 47.7 | 75.0 |
+| Longest tour ÷ (single tour ÷ `k`) | 1.007 | The division between cutters costs less than 1 %. |
+| Swept cells outside the region | 34 % | Most of the loss is at the border and at the holes. |
+| Tour length ÷ distinct points | 1.04 | Second visits cost only 4 %. |
+| Block area ÷ region area | 1.40 | Border blocks are almost empty, but a pass costs `s`. |
+| Block tour ÷ (blocks × `s`) | 1.08 | The block tour itself is close to its ideal. |
 
-The longest tour of `fekete` is 23 % shorter than the baseline (median). It
-is never longer. The gain is smallest (2 % to 4 %) on large, compact regions
-with the `p` cutter. There, the straight bands of the baseline are already
-close to good.
+Thus a better division of the region between the cutters (for example with a
+quadtree) cannot give much. The loss is in the border blocks and in the time
+that the search needs.
+
+I made three changes:
+
+1. **Refine the tours cell by cell** (`refine.py`). The verifier looks at
+   lattice points, not at blocks. The refiner expands each tour into its unit
+   steps and counts, for each cell, how many steps of all tours sweep it. Then
+   it applies two moves. Each move keeps every region cell swept:
+   - *Shortcut*: remove a part of a tour and join its ends with an L, if other
+     steps sweep all its cells.
+   - *Reroute*: replace a part between two corners with the shortest path with
+     three corners or fewer that sweeps the cells that only this part swept.
+     This moves a lane or a U-turn toward the border.
+
+   Gain: 3.4 % (median), maximum 21 %. It needs less than 1 s.
+2. **Compile the block search** (`_blockls.py`). The 2-opt, Or-opt and LNS
+   moves are the same as before. The piece lengths are computed before the
+   search starts, with bit masks. All results are equal to the Python code. The
+   search is approximately 100 times faster: 20 s now give better tours than
+   300 s gave before.
+3. **Race the block sizes.** See 5.5.
+
+These experiments did not help, and the solver does not use them:
+
+- Longer reroutes (6 or 8 segments instead of 4): no gain.
+- Grid offsets other than the offset with the fewest blocks: ±1 % to 2 %, no
+  clear winner.
+- Blocks that start at the border of each vertical strip: only 6 % fewer
+  blocks before the cost of the steps between strips.
+
+Sources:
+
+- S. P. Fekete, D. Krupke, M. Perk, C. Rieck, C. Scheffer. *The Lawn Mowing
+  Problem: From Algebra to Algorithms.* ESA 2023. arXiv:2307.01092. Section
+  5.3: step C gives approximately 5 % on polyominoes. The IP gap stays below
+  7 %.
+- D. Krupke. *Near-Optimal Coverage Path Planning with Turn Costs.* ALENEX
+  2024. arXiv:2310.20340.
+- J. Tang, H. Ma. *Large-Scale Multi-Robot Coverage Path Planning via Local
+  Search.* AAAI 2024. arXiv:2312.10797.
 
 ## 6. What is next
 
@@ -448,14 +514,18 @@ Compute a small set of anchor points that covers the region. Then find a short
 tour through that set. This is the method of Fekete et al. (ALENEX 2023, ESA
 2023). It is the largest change and the largest gain.
 
-**Direction 2 — Make the bands follow the shape.**
-A band that crosses two thin arms and one gap pays for the full width. Cut each
-band into separate runs. Then decide the order of the runs.
+**Direction 2 — Make the bands follow the shape.** *Done in part: see the
+refiner (5.6).*
+A band that crosses two thin arms and one gap pays for the full width. The
+block area is 1.40 times the region area (median). If each column could put
+its lanes freely, the sweep would be 21 % shorter, before the cost of the
+steps between the lanes. The refiner gets part of this. Blocks of different
+sizes at the border (a quadtree) could get more, but the pieces must then
+connect blocks of different sizes.
 
-**Direction 3 — Improve the division between cutters.**
-Today each cutter gets a horizontal slab. If the region has two separate parts,
-one cutter for each part is much better. Remove the condition that the groups
-must be adjacent.
+**Direction 3 — Improve the division between cutters.** *Done: the solver
+`fekete` cuts one tour into `k` tours. The longest tour is less than 1 %
+longer than the ideal division (median).*
 
 ### How to add a solver
 
