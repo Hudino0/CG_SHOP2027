@@ -10,6 +10,7 @@ stages compose without passing paths around:
     cg27 render           # PNGs for instances and for a run
     cg27 gallery          # out/gallery.html tying it all together
     cg27 overlap          # how much of the region several cutters sweep
+    cg27 grid NAME        # the block grid graph of the fekete solver
 """
 
 from __future__ import annotations
@@ -401,6 +402,34 @@ def cmd_overlap(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_grid(args: argparse.Namespace) -> int:
+    from cgshop2027_pyutils.io import read_solution
+
+    from .gridgraph import GRIDS, draw
+
+    config.ensure_dirs()
+    path = catalog.find_instance(args.instance, args.instances)
+    instance = catalog.load(path)
+    solution = None
+    if args.run:
+        solution_path = evaluate.solution_path(args.run, instance.instance_uid)
+        if not solution_path.is_file():
+            print(f"no solution at {solution_path}", file=sys.stderr)
+            return 1
+        solution = read_solution(solution_path)
+    target = GRIDS / (args.run or "instances") / f"{instance.instance_uid}.png"
+    target, stats = draw(instance, solution, s=args.block, target=target)
+    print(
+        f"{target}\n  blocks {stats['block_size']}x{stats['block_size']}, shift {stats['shift']}: "
+        f"{stats['nodes']} nodes ({stats['full_nodes']} full), {stats['edges']} edges"
+    )
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(target.as_uri())
+    return 0
+
+
 def cmd_submit(args: argparse.Namespace) -> int:
     target = Path(args.output or config.OUT / f"submission_{args.run}.zip")
     path, count = evaluate.build_submission(args.run, target)
@@ -503,6 +532,16 @@ def build_parser() -> argparse.ArgumentParser:
                       help="run to measure (repeat it; default: all runs)")
     over.add_argument("--show", type=int, default=10, help="rows to print per run")
     over.set_defaults(func=cmd_overlap)
+
+    grid = subparsers.add_parser("grid", help="draw the block grid graph of the fekete solver")
+    grid.add_argument("instance", help="instance uid, file name or path")
+    grid.add_argument("--run", default=None,
+                      help="draw this run's tours on top, and use its block size")
+    grid.add_argument("--block", type=int, default=None,
+                      help="block size s (default: the run's, else the cutter width)")
+    grid.add_argument("--instances", type=Path, default=None)
+    grid.add_argument("--open", action="store_true", help="open the image")
+    grid.set_defaults(func=cmd_grid)
 
     submit = subparsers.add_parser("submit", help="pack a run into an upload zip")
     submit.add_argument("--run", default="boustrophedon")

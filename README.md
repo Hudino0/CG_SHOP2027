@@ -174,7 +174,8 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/refine.py` | Shortens finished tours cell by cell. See 5.6. |
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 9 sub-commands. |
+| `src/cgshop27/gridgraph.py` | Draws the block grid graph of the `fekete` solver. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 10 sub-commands. |
 
 The pipeline writes into these directories. Git ignores all of them.
 
@@ -188,6 +189,7 @@ The pipeline writes into these directories. Git ignores all of them.
 | `out/gallery.html` | The HTML page to browse the instances. |
 | `out/renders/` | The PNG images. |
 | `out/animations/` | The animations. |
+| `out/grids/` | The grid graph images. |
 
 A **run** is one directory of solutions. It is normally the output of one
 solver. Use one run for each experiment.
@@ -211,6 +213,7 @@ cg27 render -j 8 --run baseline     # draw the solutions of one run
 cg27 gallery --open                 # write and open out/gallery.html
 cg27 animate iso_11k_6k_3p --run baseline --open   # watch the tours
 cg27 overlap -j 8 --run baseline    # how much the tours overlap
+cg27 grid iso_11k_6k_3p --run fekete --open      # the grid graph
 cg27 submit --run baseline          # write out/submission_baseline.zip
 ```
 
@@ -237,6 +240,30 @@ a short tour costs nothing. On the 75 examples, `baseline` has no overlap: its
 bands do not touch. `fekete` has a median of 1.4 % and a maximum of 8.2 %.
 The overlap is at the borders between the zones of two cutters, and where one
 cutter crosses the zone of another cutter.
+
+### See the grid graph
+
+The `fekete` solver does not look at single cells. It cuts the region into
+blocks of `s x s` cells. Each block that holds region cells is a node. Two
+nodes have an edge when their blocks share a side. Step A of the solver finds a
+round trip on this graph.
+
+```bash
+cg27 grid iso_11k_6k_3p --run fekete --open
+```
+
+| In the image | Meaning |
+|---|---|
+| Green cells | The region. |
+| Thin grid | The blocks, at the offset with the fewest blocks. |
+| White node | A block that the region fills completely. |
+| Yellow node | A block that the region fills only in part. |
+| Black line | An edge of the grid graph. |
+| Colored lines | The tours of the run, one color for each cutter. |
+
+With `--run`, the block size comes from the solution. Without it, the command
+uses the cutter width, or the value of `--block`. The image goes to
+`out/grids/<run>/`.
 
 ### Watch the tours over time
 

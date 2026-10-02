@@ -5,3 +5,8 @@ data/raw/
 data/instances/
 data/solutions/
 out/
+
+# video: intermediate render files, drafts and papers stay local
+video/build/
+video/*_480p15.mp4
+*.pdf
