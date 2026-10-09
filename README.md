@@ -175,7 +175,8 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
 | `src/cgshop27/gridgraph.py` | Draws the block grid graph of the `fekete` solver. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 10 sub-commands. |
+| `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 11 sub-commands. |
 
 The pipeline writes into these directories. Git ignores all of them.
 
@@ -216,6 +217,31 @@ cg27 overlap -j 8 --run baseline    # how much the tours overlap
 cg27 grid iso_11k_6k_3p --run fekete --open      # the grid graph
 cg27 submit --run baseline          # write out/submission_baseline.zip
 ```
+
+### Run all solvers and see the grid graph (one command)
+
+The command `cg27 pipeline` does the whole chain for each instance and each
+solver: it solves, verifies, and draws the grid graph with the tours on top.
+Then it writes one HTML page that puts the solvers side by side.
+
+```bash
+cg27 pipeline -j 8                                # all solvers, all instances
+cg27 pipeline --filter iso_11k_6k_3p --open       # one instance, open the report
+cg27 pipeline --solver fekete --time-limit 60     # one solver
+```
+
+| Option | Meaning |
+|---|---|
+| `--solver` | A solver to run. Repeat it for more. Default: all of them. |
+| `--prefix` | The runs are named `<prefix>_<solver>`. Default prefix: `pipe`. |
+| `--time-limit` | Seconds for each instance, for the solvers that accept it. |
+| `--clean` | Empty the runs first. |
+
+The command writes `out/pipeline/index.html` (the report),
+`out/pipeline/summary.json` (objective, gap, time, nodes and edges for each
+pair) and the images in `out/grids/<prefix>_<solver>/`. An infeasible solution
+is not saved. The exit code is 1 if one solution is infeasible. The runs also
+work with `verify`, `animate` and `submit`.
 
 ### Measure the overlap between the tours
 
