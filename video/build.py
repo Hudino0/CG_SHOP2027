@@ -68,7 +68,7 @@ def main():
     run([FFMPEG, "-y", "-loglevel", "error", "-i", joined, "-i", music, "-filter_complex",
          "[1:a]volume=0.11[m];[0:a][m]amix=inputs=2:duration=first:normalize=0,"
          "loudnorm=I=-16:TP=-1.5:LRA=11[a]",
-         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", final])
+         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-b:a", "192k", final])
     print(f"\nlisto: {final}  ({dur / 60:.1f} min)")
 
 
