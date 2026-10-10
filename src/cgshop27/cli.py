@@ -11,6 +11,7 @@ stages compose without passing paths around:
     cg27 gallery          # out/gallery.html tying it all together
     cg27 overlap          # how much of the region several cutters sweep
     cg27 grid NAME        # the block grid graph of the fekete solver
+    cg27 pipeline         # solve + verify + grid graph, all solvers, one report
 """
 
 from __future__ import annotations
@@ -430,6 +431,59 @@ def cmd_grid(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pipeline_worker(job):
+    from .pipeline import execute
+
+    return execute(job)
+
+
+def cmd_pipeline(args: argparse.Namespace) -> int:
+    from . import pipeline
+
+    config.ensure_dirs()
+    paths = _select(catalog.instance_paths(args.instances), args.filter, args.limit)
+    if not paths:
+        print("no instances found -- run `cg27 fetch` first", file=sys.stderr)
+        return 1
+    solvers = args.solver or list(pipeline.DEFAULT_SOLVERS)
+    options = {}
+    if args.time_limit is not None:
+        options["time_limit"] = args.time_limit
+
+    jobs = []
+    for solver in solvers:
+        run = pipeline.run_name(args.prefix, solver)
+        if args.clean:
+            shutil.rmtree(config.SOLUTIONS / run, ignore_errors=True)
+        opts = (
+            options
+            if "time_limit" in inspect.signature(SOLVERS[solver]).parameters
+            else {}
+        )
+        jobs += [(str(p), solver, run, opts) for p in paths]
+    results = _map(_pipeline_worker, jobs, args.jobs, "solve + verify + grid")
+
+    report = pipeline.write_report(results, solvers, pipeline.REPORT_DIR / "index.html")
+    summary = pipeline.write_summary(results, pipeline.REPORT_DIR / "summary.json")
+    for solver in solvers:
+        mine = [r for r in results if r.solver == solver]
+        good = [r for r in mine if r.feasible]
+        gaps = sorted(r.gap for r in good if r.gap)
+        line = f"{solver}: {len(good)}/{len(mine)} feasible"
+        if gaps:
+            line += f", median gap {gaps[len(gaps) // 2]}x"
+        print(line)
+        for r in mine:
+            if not r.feasible:
+                print(f"  INFEASIBLE {r.instance_uid}: {r.error}")
+    print(f"report  {report}\nsummary {summary}")
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(report.resolve().as_uri())
+    return 0 if all(r.feasible for r in results) else 1
+
+
 def cmd_submit(args: argparse.Namespace) -> int:
     target = Path(args.output or config.OUT / f"submission_{args.run}.zip")
     path, count = evaluate.build_submission(args.run, target)
@@ -542,6 +596,19 @@ def build_parser() -> argparse.ArgumentParser:
     grid.add_argument("--instances", type=Path, default=None)
     grid.add_argument("--open", action="store_true", help="open the image")
     grid.set_defaults(func=cmd_grid)
+
+    pipe = subparsers.add_parser(
+        "pipeline", help="solve, verify and draw the grid graph, for several solvers"
+    )
+    common(pipe)
+    pipe.add_argument("--solver", action="append", choices=sorted(SOLVERS), default=None,
+                      help="solver to run; repeat for more (default: all)")
+    pipe.add_argument("--prefix", default="pipe", help="runs are named <prefix>_<solver>")
+    pipe.add_argument("--clean", action="store_true", help="empty the runs first")
+    pipe.add_argument("--time-limit", type=float, default=None,
+                      help="seconds per instance, for the solvers that take it")
+    pipe.add_argument("--open", action="store_true", help="open the report")
+    pipe.set_defaults(func=cmd_pipeline)
 
     submit = subparsers.add_parser("submit", help="pack a run into an upload zip")
     submit.add_argument("--run", default="boustrophedon")
