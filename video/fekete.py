@@ -231,6 +231,7 @@ class S1Problema(VScene):
         self.play(Create(diam), FadeIn(lab), run_time=.6)
         self.wait(.8)
         self.play(FadeOut(diam), FadeOut(lab), run_time=.4)
+        self.until(t)  # que "n1_2" termine antes de que empiece "n1_3"
 
         def top(x):
             return 3 + 1.8 * x / 2.5 if x < 2.5 else (4.8 if x <= 6 else 4.8 - 1.8 * (x - 6) / 2)
