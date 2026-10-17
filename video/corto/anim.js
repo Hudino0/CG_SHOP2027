@@ -325,9 +325,11 @@ function titles() {
   }
 }
 function subtitles() {
-  for (const l of TL.lines) {
-    const al = life(l.start - .1, l.end + .15, .15, .2);
-    if (al <= 0) continue;
+  TL.lines.forEach((l, i) => {
+    const next = TL.lines[i + 1];
+    const end = next ? Math.min(l.end + .15, next.start - .3) : l.end + .15;
+    const al = life(l.start - .1, end, .1, .2);
+    if (al <= 0) return;
     const lines = wrap(l.text, 44, 900);
     const y0 = 1690 - (lines.length - 1) * 30;
     lines.forEach((s, j) => {
@@ -336,7 +338,7 @@ function subtitles() {
       const yl = L.yellow; yl.save(); yl.globalAlpha = al; yl.fillStyle = '#000'; yl.fillRect(W / 2 - w / 2 - 14, y - 40, w + 28, 54); yl.restore();
       txt(L.blue, s, W / 2, y, 44, { alpha: al });
     });
-  }
+  });
 }
 function stats(lines, alpha) {
   lines.forEach(([s, ink], j) => txt(L[ink || 'blue'], s, W / 2, 1468 + j * 50, 38, { mono: true, alpha }));
@@ -535,7 +537,7 @@ function sceneTurns() {
     const words = ['recto', 'giro', 'vuelta'];
     const open = ease(P(st('d3') + .2, 1.2));
     kinds.forEach((kd, i) => {
-      const k = back(P(wordT('d2', words[i]) - .15, .4)); if (k <= 0) return;
+      const k = back(P(Math.min(wordT('d2', words[i]) - .15, st('d2') + .5 + i * .45), .4)); if (k <= 0) return;
       const x = W / 2 + (i - 1) * (s + gap) - s / 2;
       const c = L.blue; const cell = new Path2D(); cell.rect(x, y, s, s);
       const al = a2 * clamp(k);
@@ -725,7 +727,7 @@ function sfxCues() {
   for (let i = 0; i < 8; i++) c.push([st('c1') + .6 + i * .12, 'click', .5]);
   c.push([st('c2') + .2, 'pop', .6], [st('c2') + 1.2, 'pop', .5]);
   c.push([st('d1') + 2.2, 'error', .5]);
-  ['recto', 'giro', 'vuelta'].forEach(w => c.push([wordT('d2', w) - .15, 'pop', .6]));
+  ['recto', 'giro', 'vuelta'].forEach((w, i) => c.push([Math.min(wordT('d2', w) - .15, st('d2') + .5 + i * .45), 'pop', .6]));
   c.push([st('d3') + 1.3, 'ding', .45]);
   const t1 = st('e1') + .3, fly = Math.max(2.4, en('e1') - t1 - .2);
   c.push([t1, 'hum:' + fly.toFixed(2), .3], [t1 + fly - .2, 'error', .45], [st('e2') + 1.4, 'success', .5]);
