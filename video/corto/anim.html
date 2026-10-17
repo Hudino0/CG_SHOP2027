@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lawn mowing · riso</title>
+<style>
+  @font-face { font-family: "Bricolage"; src: url(fonts/BricolageGrotesque-800.woff2) format("woff2"); font-weight: 800; }
+  @font-face { font-family: "Space Mono"; src: url(fonts/SpaceMono-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Space Mono"; src: url(fonts/SpaceMono-700.woff2) format("woff2"); font-weight: 700; }
+  html, body { margin: 0; background: #1d1d1d; color: #eee; font-family: "Space Mono", monospace; }
+  body.render { background: #000; }
+  #c { display: block; margin: 0 auto; height: 92vh; aspect-ratio: 9 / 16; }
+  body.render #c { height: auto; width: 1080px; }
+  #bar { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 6px; font-size: 13px; }
+  #bar input { width: 50vw; }
+  body.render #bar { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<div id="bar">
+  <button id="play">▶</button>
+  <input id="seek" type="range" min="0" max="100" step="0.01" value="0">
+  <span id="time">0.0 s</span>
+  <audio id="audio" src="build/mezcla.wav" preload="auto"></audio>
+</div>
+<script src="build/data.js"></script>
+<script src="anim.js"></script>
+</body>
+</html>

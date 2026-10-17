@@ -15,3 +15,7 @@ python build.py S4Piezas # re-renderiza sólo una escena y vuelve a unir
 - `fekete.py` — las 7 escenas
 - `sfx.py` — efectos de sonido y música de fondo
 - Necesita Python ≤ 3.13 (Manim no tiene ruedas para 3.14).
+
+## Video corto vertical (estilo risografía)
+
+Ver `corto/README.md`. Se construye con `python corto/build.py`.
