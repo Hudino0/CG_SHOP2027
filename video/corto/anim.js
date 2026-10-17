@@ -84,7 +84,7 @@ function composite() {
   main.globalCompositeOperation = 'source-over';
   main.globalAlpha = 1;
   main.drawImage(paper, 0, 0);
-  const g = grains[Math.floor(T * 8) % 3];
+  const g = grains[Math.floor(T * 1.5) % 3];  // el grano cambia poco: mantiene el MP4 pequeño
   ORDER.forEach((k, i) => {
     tctx.globalCompositeOperation = 'source-over';
     tctx.clearRect(0, 0, W, H);

@@ -108,7 +108,7 @@ def main():
     run([FFMPEG, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", BUILD / "segs.txt", "-c", "copy", joined])
     final = ROOT / f"{NAME}.mp4"
     run([FFMPEG, "-y", "-loglevel", "error", "-i", joined, "-i", audio, "-af", "loudnorm=I=-15:TP=-1.5:LRA=11",
-         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "slow", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
          "-movflags", "+faststart", "-shortest", final])
     print(f"\nlisto: {final}  ({tl['total']:.1f} s)")
 
