@@ -267,6 +267,38 @@ function drone(x, y, s, rot, alpha = 1) {
   p.beginPath(); p.arc(0, 0, 6, 0, 7); p.fillStyle = '#000'; p.fill();
   p.restore();
 }
+// carrito antiguo de perfil, con ojo en el parabrisas (homenaje, dibujo original)
+const CAR = (() => {
+  const body = new Path2D();
+  body.moveTo(-130, 12); body.lineTo(-128, -8); body.quadraticCurveTo(-96, -22, -44, -24);
+  body.quadraticCurveTo(-14, -54, 26, -54); body.quadraticCurveTo(82, -52, 118, -22); body.quadraticCurveTo(132, -12, 130, 12); body.closePath();
+  const glass = new Path2D();
+  glass.moveTo(-36, -26); glass.lineTo(-14, -47); glass.lineTo(8, -49); glass.lineTo(8, -26); glass.closePath();
+  glass.moveTo(16, -48); glass.quadraticCurveTo(62, -47, 90, -26); glass.lineTo(16, -26); glass.closePath();
+  const chrome = new Path2D();
+  chrome.rect(-136, 2, 40, 9); chrome.rect(104, 2, 30, 8); chrome.rect(-90, -6, 190, 4);
+  chrome.moveTo(-114, -8); chrome.arc(-120, -8, 6, 0, 7);
+  const eye = new Path2D(); eye.ellipse(-10, -36, 11, 8, -.15, 0, 7);
+  const rims = new Path2D(); for (const wx of [-78, 76]) { rims.moveTo(wx + 11, 12); rims.arc(wx, 12, 11, 0, 7); }
+  const tires = new Path2D(); for (const wx of [-78, 76]) { tires.moveTo(wx + 22, 12); tires.arc(wx, 12, 22, 0, 7); }
+  return { body, glass, chrome, eye, rims, tires };
+})();
+function car(x, y, s, tilt, alpha) {
+  if (alpha <= 0) return;
+  const inks = [L.blue, L.pink, L.yellow];
+  for (const c of inks) { c.save(); c.globalAlpha *= alpha; c.translate(x, y); c.rotate(tilt); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; c.lineCap = c.lineJoin = 'round'; }
+  const [b, p, yl] = inks;
+  b.fill(CAR.body); b.fill(CAR.tires);
+  // lo claro se cala de la carrocería para que no se vuelva oscuro al imprimir encima
+  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1;
+  b.fill(CAR.glass); b.fill(CAR.chrome); b.fill(CAR.rims); b.restore();
+  yl.fill(CAR.glass); yl.fill(CAR.chrome);
+  yl.save(); yl.globalCompositeOperation = 'destination-out'; yl.globalAlpha = 1; yl.fill(CAR.eye); yl.restore();
+  b.beginPath(); b.arc(-15, -35, 4.5, 0, 7); b.fill();
+  p.fill(CAR.rims); b.beginPath(); b.arc(-78, 12, 4, 0, 7); b.arc(76, 12, 4, 0, 7); b.fill();
+  p.lineWidth = 3; p.beginPath(); p.arc(-118, 2, 8, .4, 1.7); p.stroke();
+  for (const c of inks) c.restore();
+}
 function sprayDisk(x, y, r, alpha) {
   const c = L.yellow; c.save(); c.globalAlpha *= alpha; c.fillStyle = '#000'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.restore();
   const b = L.blue; b.save(); b.globalAlpha *= alpha; b.setLineDash([10, 9]); b.lineWidth = 3; b.strokeStyle = '#000'; b.beginPath(); b.arc(x, y, r, 0, 7); b.stroke(); b.restore();
@@ -609,6 +641,21 @@ function sceneTurns() {
       const lab = ['= 1', '≈ 1.33', '≈ 1.61'][i];
       txt(L.pink, lab, x + s / 2, y + s + 112, 40, { mono: true, alpha: a2 * P(st('d3') + 1.3 + i * .25, .3) });
     });
+    // guiño: un carrito entra derrapando ("gira a la derecha para ir a la izquierda")
+    const t0 = st('d3') + .2, ca = a2 * (1 - P(wordT('d3', 'cada giro') - .3, .3));
+    if (T > t0 && ca > 0) {
+      const m = eout(P(t0, 1.3)), cx = lerp(W + 220, W / 2 - 200, m), cy = Y0 + 650;
+      const tilt = Math.sin(m * Math.PI) * -.12;
+      const p = L.pink; p.save(); p.globalAlpha = ca * (1 - m) * .8; p.fillStyle = '#000';
+      for (let i = 0; i < 6; i++) { p.beginPath(); p.arc(cx + 175 + i * 26, cy + 26 - (i % 2) * 10, 10 - i, 0, 7); p.fill(); }
+      p.restore();
+      car(cx, cy, 1.25, tilt, ca);
+      const ba = ca * P(t0 + 1.1, .3);
+      if (ba > 0) {
+        tag('¡GIRA A LA DERECHA', W / 2 + 220, cy - 66, 22, ba);
+        tag('PARA IR A LA IZQUIERDA!', W / 2 + 220, cy - 22, 22, ba);
+      }
+    }
     const fa = a2 * P(wordT('d3', 'Cada giro'), .4);
     if (fa > 0) {
       headline('cada giro ≈ +⅓', W / 2, Y0 + 720, 84, fa, eout(fa));
@@ -777,7 +824,7 @@ function sfxCues() {
   c.push([st('c2') + .2, 'pop', .6], [st('c2') + 1.2, 'pop', .5]);
   c.push([st('d1') + 2.2, 'error', .5]);
   ['recto', 'giro', 'vuelta'].forEach((w, i) => c.push([Math.min(wordT('d2', w) - .15, st('d2') + .5 + i * .45), 'pop', .6]));
-  c.push([st('d3') + 1.3, 'ding', .45]);
+  c.push([st('d3') + .2, 'whoosh', .5], [st('d3') + 1.3, 'ding', .45]);
   const t1 = st('e1') + .3, fly = Math.max(2.4, en('e1') - t1 - .2);
   c.push([t1, 'hum:' + fly.toFixed(2), .3], [t1 + fly - .2, 'error', .45], [st('e2') + 1.4, 'success', .5]);
   const steps = CH.length - 1, t3 = st('e3') + .2, D = (st('e4') - .2 - t3) / steps;
