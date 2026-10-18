@@ -26,6 +26,13 @@ TRIM = ("silenceremove=start_periods=1:start_threshold=-45dB,areverse,"
         "silenceremove=start_periods=1:start_threshold=-45dB,areverse")
 
 
+# tu grabación: quita graves de ruido, acorta las pausas largas dentro de la frase,
+# acelera sin cambiar el tono y empareja el volumen entre frases
+REC_FILTER = ("highpass=f=80," + TRIM + ","
+              "silenceremove=stop_periods=-1:stop_duration=0.25:stop_threshold=-45dB:stop_silence=0.18,"
+              "atempo={tempo},loudnorm=I=-18:TP=-2:LRA=7")
+
+
 def fetch(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     print("descargando", url)
@@ -55,7 +62,7 @@ def make(key: str, text: str) -> str:
     wav = VOZ / f"{key}.wav"
     stamp = VOZ / f"{key}.txt"
     src = recording(key)
-    sig = f"rec:{src.name}:{src.stat().st_mtime_ns}" if src else f"piper:{guion.VOZ_PIPER}:{guion.VELOCIDAD}:{text}"
+    sig = f"rec:{src.name}:{src.stat().st_mtime_ns}:{guion.TEMPO_GRABACION}" if src else f"piper:{guion.VOZ_PIPER}:{guion.VELOCIDAD}:{text}"
     if wav.exists() and stamp.exists() and stamp.read_text(encoding="utf-8") == sig:
         return "grabación" if src else "piper"
     if src is None:
@@ -67,7 +74,8 @@ def make(key: str, text: str) -> str:
         kind = "piper"
     else:
         kind = "grabación"
-    subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", src, "-af", TRIM, "-ar", "48000", "-ac", "2", wav],
+    af = TRIM if kind == "piper" else REC_FILTER.format(tempo=guion.TEMPO_GRABACION)
+    subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", src, "-af", af, "-ar", "48000", "-ac", "2", wav],
                    check=True)
     if kind == "piper":
         src.unlink()

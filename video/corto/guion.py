@@ -31,7 +31,7 @@ ESCENAS = [
         ("e4", "Menos giros equivalen a una ruta más corta."),
     ]),
     ("drones", [
-        ("f1", "Ahora viene lo práctico. Estiramos la ruta y la medimos."),
+        ("f1", "¿Qué aplicaciones tiene esto? Estiramos la ruta y la medimos."),
         ("f2", "Un dron recorre cierta distancia con cada batería. Partimos la ruta en tramos de ese largo y los contamos."),
         ("f3", "Con eso estimamos cuántos drones o cuántas recargas hacen falta. Y como cada giro consume batería, girar menos puede ahorrar un dron entero."),
     ]),
@@ -46,11 +46,14 @@ ESCENAS = [
 PAUSA_FRASE = 0.25
 PAUSA_ESCENA = 0.4
 # segundos extra después de ciertas frases, para que se vea la animación
-EXTRA = {"a2": 0.3, "c2": 0.6, "c3": 0.5, "d2": 0.5, "e2": 0.4, "e3": 1.6, "e4": 0.6,
-         "f2": 0.6, "f3": 0.8, "g1": 1.8, "g3": 1.6}
+EXTRA = {"a2": 0.2, "c2": 0.3, "c3": 0.3, "d2": 0.4, "e2": 0.3, "e3": 1.1, "e4": 0.5,
+         "f2": 0.4, "f3": 0.6, "g1": 1.3, "g3": 1.2}
 # segundos antes de la primera frase y al final (créditos)
 INICIO = 0.6
 FINAL = 2.5
+
+# velocidad de tu grabación (1 = igual; 1.2 = 20 % más rápida, sin cambiar el tono)
+TEMPO_GRABACION = 1.2
 
 # voz provisional (Piper, sin internet): sólo hasta que grabes la tuya
 VOZ_PIPER = "es-carlfm-x-low"
