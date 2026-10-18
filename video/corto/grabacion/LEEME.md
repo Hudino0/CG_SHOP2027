@@ -65,5 +65,5 @@ Después corre `python build.py`. La animación se ajusta sola a la duración de
 | Archivo | Frase |
 |---|---|
 | `g1` | Esto sirve para fumigar cultivos, inspeccionar con cámaras, buscar personas, o guiar robots que podan. |
-| `g2` | De vuelta a nuestro campo: cada dron toma su tramo de la ruta, y entre los cuatro lo cubren todo. |
+| `g2` | En todos estos casos, la receta es la misma: |
 | `g3` | Simplificar el terreno, decidir bien cada giro, cubrir todo con el camino más corto. |

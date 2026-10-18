@@ -226,12 +226,6 @@ function partial(pts, A, s) {
   if (s < A[A.length - 1]) { const p = pointAt(pts, A, s); out.push([p[0], p[1]]); }
   return out;
 }
-function slice(pts, A, s0, s1) {
-  const out = [pointAt(pts, A, s0).slice(0, 2)];
-  for (let i = 1; i < pts.length; i++) if (A[i] > s0 && A[i] < s1) out.push(pts[i]);
-  out.push(pointAt(pts, A, s1).slice(0, 2));
-  return out;
-}
 function poly(ctx, pts, close) { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); if (close) ctx.closePath(); }
 const CH = CAMPO.chain;
 const TURN_EXTRA = 2 * Math.hypot(.5 * K_P, .5 * (1 + K_P)) - 1;  // ≈ 0.326
@@ -362,8 +356,7 @@ const TITLES = [
   ['f2', '05 · ¿cuántos drones?', ['Partirla por', 'batería']],
   ['f3', '05 · ¿cuántos drones?', ['La cuenta']],
   ['g1', '06 · aplicaciones', ['¿Para qué', 'sirve?']],
-  ['g2', '06 · en equipo', ['Un tramo', 'por dron']],
-  ['g3', '06 · en resumen', ['Cubrir todo']],
+  ['g2', '07 · en resumen', ['La receta']],
 ].map(([k, kick, lines]) => ({ t: st(k) - .15, kick, lines }));
 
 function titles() {
@@ -713,12 +706,15 @@ function sceneEnd() {
   const a = life(SC.cierre.start - .1, TL.total + 1, .3, .3);
   if (a <= 0) return;
   // g1: cuatro tarjetas
-  const ca = a * (1 - P(st('g2') - .2, .4));
+  const join = ease(P(st('g2'), .9)), ca = a * (1 - P(st('g2') + .55, .35));
+  const TX = W / 2, TY = Y0 + 200;  // dónde queda la miniatura del campo
   const cards = [['fumigar', 'cultivos', 'fumigar'], ['inspeccionar', 'con cámaras', 'inspeccionar'], ['buscar', 'personas', 'buscar'], ['robots', 'que podan', 'robots']];
   if (ca > 0) cards.forEach(([l1, l2, w], i) => {
     const k = back(P(wordT('g1', w) - .2, .45)); if (k <= 0) return;
-    const x = W / 2 + (i % 2 ? 1 : -1) * 235, y = Y0 + 230 + Math.floor(i / 2) * 470, rot = [-.04, .03, .025, -.035][i];
-    for (const c of Object.values(L)) { c.save(); c.translate(x, y); c.rotate(rot); c.scale(k, k); c.translate(-x, -y); }
+    const x0 = W / 2 + (i % 2 ? 1 : -1) * 235, y0 = Y0 + 230 + Math.floor(i / 2) * 470;
+    const x = lerp(x0, TX, join), y = lerp(y0, TY, join), rot = [-.04, .03, .025, -.035][i] * (1 + 4 * join);
+    const sc = k * lerp(1, .35, join);
+    for (const c of Object.values(L)) { c.save(); c.translate(x, y); c.rotate(rot); c.scale(sc, sc); c.translate(-x, -y); }
     const p = L.pink; p.save(); p.globalAlpha = ca; p.fillStyle = halftone(p, .35, 15, 8); p.fillRect(x - 190 + 14, y - 200 + 14, 380, 400); p.restore();
     const b = L.blue; b.save(); b.globalAlpha = ca; b.lineWidth = 5; b.strokeStyle = '#000'; b.strokeRect(x - 190, y - 200, 380, 400); b.restore();
     icon(i, x, y - 40, 1, ca);
@@ -726,24 +722,15 @@ function sceneEnd() {
     txt(L.blue, l2, x, y + 165, 30, { mono: true, alpha: ca });
     for (const c of Object.values(L)) c.restore();
   });
-  // g2: los drones de la cuenta se reparten la ruta y cubren el campo a la vez
-  const qa = a * life(st('g2') - .2, st('g3'), .4, .4);
-  if (qa > 0) {
-    const n = Math.ceil(lengthOf(CH[CH.length - 1]) / BATT), A = arcs(FINAL), seg = A[A.length - 1] / n;
-    const pr = ease(P(st('g2') + .5, Math.max(1.5, en('g2') - st('g2') - .3)));
-    grass(fieldPath, qa, .55);
-    const b = L.blue; b.save(); b.globalAlpha = qa * .5; b.lineWidth = 2; b.strokeStyle = '#000'; b.stroke(fieldPath); b.restore();
-    strokePts('blue', FINAL, 3, qa * .45, { dash: [8, 10] });
-    for (let i = 0; i < n; i++) {
-      const s0 = i * seg, s1 = s0 + seg * pr, part = slice(FINAL, A, s0, s1);
-      const y = L.yellow; y.save(); y.globalAlpha = qa; y.clip(fieldPath); y.lineWidth = S; y.lineCap = 'round'; y.lineJoin = 'round'; y.strokeStyle = '#000'; poly(y, part); y.stroke(); y.restore();
-      strokePts('blue', part, 7, qa);
-      const [mx, my] = pointAt(FINAL, A, s0);
-      const p = L.pink; p.save(); p.globalAlpha = qa; p.fillStyle = '#000'; p.beginPath(); p.arc(mx, my, 12, 0, 7); p.fill(); p.restore();
-      const [x, yy, ang] = pointAt(FINAL, A, s1);
-      drone(x, yy, .75, ang, qa);
-    }
-    stats([[`${n} drones · ${n} tramos`]], qa * P(st('g2') + .5, .4));
+  // g2: de las tarjetas sale el campo con su ruta: la misma receta para todos
+  const ma = a * P(st('g2') + .5, .35);
+  if (ma > 0) {
+    const k = .4 * back(P(st('g2') + .5, .5)), cx = X0 + CAMPO.cols * S / 2, cy = Y0 + CAMPO.rows * S / 2;
+    for (const c of Object.values(L)) { c.save(); c.translate(TX, TY); c.scale(k, k); c.translate(-cx, -cy); }
+    const y = L.yellow; y.save(); y.globalAlpha = ma; y.fillStyle = '#000'; y.fill(fieldPath); y.restore();
+    const b = L.blue; b.save(); b.globalAlpha = ma; b.lineWidth = 8; b.strokeStyle = '#000'; b.stroke(fieldPath); b.restore();
+    strokePts('blue', FINAL, 14, ma);
+    for (const c of Object.values(L)) c.restore();
   }
   // g3: resumen y créditos
   const ra = a * P(st('g3') - .2, .3);
@@ -751,7 +738,7 @@ function sceneEnd() {
     const items = [['Simplificar', 'el terreno → grafo', 'Simplificar'], ['Decidir', 'cada giro → piezas', 'Decidir'], ['Cubrir todo', 'con el camino más corto', 'Cubrir']];
     items.forEach(([h, s2, w], i) => {
       const k = eout(P(wordT('g3', w) - .15, .45)); if (k <= 0) return;
-      const y = Y0 + 80 + i * 230, x = 150 + (1 - k) * 60;
+      const y = Y0 + 520 + i * 190, x = 150 + (1 - k) * 60;
       const yl = L.yellow; yl.save(); yl.globalAlpha = ra * k; yl.fillStyle = '#000'; yl.beginPath(); yl.arc(x + 40, y - 20, 50, 0, 7); yl.fill(); yl.restore();
       const p = L.pink; p.save(); p.globalAlpha = ra * k; p.lineWidth = 6; p.strokeStyle = '#000'; p.beginPath(); p.arc(x + 40, y - 20, 50, 0, 7); p.stroke(); p.restore();
       txt(L.blue, String(i + 1), x + 40, y + 2, 64, { alpha: ra * k });
@@ -761,7 +748,7 @@ function sceneEnd() {
     const cr = ra * P(en('g3') + .2, .6);
     if (cr > 0) {
       const lines = ['Basado en: S. P. Fekete, D. Krupke, M. Perk,', 'C. Rieck y C. Scheffer (2023).', 'The Lawn Mowing Problem:', 'From Algebra to Algorithms. ESA 2023.'];
-      lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 830 + i * 40, 28, { mono: true, alpha: cr }));
+      lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1045 + i * 36, 26, { mono: true, alpha: cr }));
     }
   }
 }
@@ -802,7 +789,7 @@ function sfxCues() {
   for (let i = 0; i < Math.ceil(lengthOf(CH[0]) / BATT); i++) c.push([t2 + .5 + i * .35, 'pop', .45]);
   c.push([t2 + 2.6, 'boom', .6]);
   ['fumigar', 'inspeccionar', 'buscar', 'robots'].forEach(w => c.push([wordT('g1', w) - .2, 'pop', .55]));
-  c.push([st('g2') + .4, 'hum:' + Math.max(1.5, en('g2') - st('g2')).toFixed(2), .3], [en('g2'), 'ding', .4]);
+  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6]);
   ['Simplificar', 'Decidir', 'Cubrir'].forEach(w => c.push([wordT('g3', w) - .15, 'click', .6]));
   c.push([en('g3') + .2, 'success', .5]);
   return c.filter(x => x[0] >= 0).map(([t, n, v]) => ({ t: +t.toFixed(3), name: n, vol: v }));
