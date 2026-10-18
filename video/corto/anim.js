@@ -130,7 +130,7 @@ function wrap(s, size, maxW) {
 
 // ---------- geometría del campo ----------
 const S = 120;
-const X0 = (W - CAMPO.cols * S) / 2, Y0 = 430;
+const X0 = (W - CAMPO.cols * S) / 2, Y0 = 450;
 const cells = CAMPO.cells;
 const inSet = new Set(cells.map(([x, y]) => x + ',' + y));
 const has = (x, y) => inSet.has(x + ',' + y);
@@ -259,6 +259,48 @@ function sprayDisk(x, y, r, alpha) {
   const c = L.yellow; c.save(); c.globalAlpha *= alpha; c.fillStyle = '#000'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.restore();
   const b = L.blue; b.save(); b.globalAlpha *= alpha; b.setLineDash([10, 9]); b.lineWidth = 3; b.strokeStyle = '#000'; b.beginPath(); b.arc(x, y, r, 0, 7); b.stroke(); b.restore();
 }
+// rociado: gotas que salen del dron hacia el borde del círculo y anillos que se abren
+function sprayFx(x, y, r, alpha) {
+  if (alpha <= 0) return;
+  // bajo la nube el pasto se aclara, para que el rociado se lea
+  const g = L.green; g.save(); g.globalCompositeOperation = 'destination-out'; g.globalAlpha = alpha * .6;
+  g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.restore();
+  const p = L.pink; p.save(); p.fillStyle = p.strokeStyle = '#000';
+  const h = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+  for (let i = 0; i < 120; i++) {
+    const f = (T * .8 + h(i)) % 1, a = h(i + 500) * 6.2832 + .3 * f;
+    const d = r * (.35 + .7 * h(i + 900)) * eout(f);
+    p.globalAlpha = alpha * (1 - f * f);
+    p.beginPath(); p.arc(x + d * Math.cos(a), y + d * Math.sin(a), lerp(11, 3, f) * Math.max(.45, r / 180), 0, 7); p.fill();
+  }
+  for (let k = 0; k < 3; k++) {
+    const f = (T * .6 + k / 3) % 1;
+    p.globalAlpha = alpha * .7 * (1 - f); p.lineWidth = 6 * (1 - f) + 2;
+    p.beginPath(); p.arc(x, y, r * (.2 + .8 * eout(f)), 0, 7); p.stroke();
+  }
+  p.restore();
+}
+// titular legible: tinta azul limpia sobre un trazo de marcador amarillo
+function headline(s, x, y, size, alpha, mark = 1) {
+  const c = L.blue; c.save(); c.font = font(DISPLAY, size); const w = c.measureText(s).width; c.restore();
+  if (mark > 0) {
+    const yl = L.yellow, x0 = x - w / 2 - 16, ww = (w + 32) * mark;
+    yl.save(); yl.globalAlpha = alpha * .95; yl.fillStyle = '#000'; yl.beginPath();
+    yl.moveTo(x0, y - size * .34); yl.lineTo(x0 + ww, y - size * .39); yl.lineTo(x0 + ww, y + size * .09); yl.lineTo(x0, y + size * .12);
+    yl.fill(); yl.restore();
+  }
+  txt(L.blue, s, x, y, size, { alpha });
+}
+// etiqueta: píldora rosa con el texto calado, se ve el papel
+function tag(s, x, y, size, alpha) {
+  if (alpha <= 0) return;
+  const p = L.pink; p.save(); p.font = font(MONO, size); p.letterSpacing = '4px';
+  const w = p.measureText(s).width;
+  p.globalAlpha = alpha; p.fillStyle = '#000';
+  p.beginPath(); p.roundRect(x - w / 2 - 24, y - size * 1.08, w + 44, size * 1.62, size * .81); p.fill();
+  p.globalCompositeOperation = 'destination-out'; p.globalAlpha = 1; p.textAlign = 'center';
+  p.fillText(s, x + 2, y); p.restore();
+}
 function grass(path, alpha, level = .5) {
   const g = L.green; g.save(); g.globalAlpha *= alpha; g.fillStyle = halftone(g, level, 45, 9); g.fill(path); g.restore();
 }
@@ -315,12 +357,10 @@ function titles() {
     const sameKick = i > 0 && TITLES[i - 1].kick === a.kick, nextSame = b && b.kick === a.kick;
     const ka = Math.min(sameKick ? 1 : tin, nextSame ? 1 : 1 - tout);
     const dy = (1 - eout(tin)) * 40 - eout(tout) * 30;
-    txt(L.pink, a.kick.toUpperCase(), W / 2, 150, 30, { mono: true, spacing: 4, alpha: ka });
+    tag(a.kick.toUpperCase(), W / 2, 152, 28, ka);
     a.lines.forEach((s, j) => {
-      const size = fitSize(s, 104, 940);
-      const y = 262 + j * 104 + dy;
-      txt(L.pink, s, W / 2 + 6, y + 6, size, { alpha: al * .9 });
-      txt(L.blue, s, W / 2, y, size, { alpha: al });
+      const size = fitSize(s, 100, 920);
+      headline(s, W / 2, 272 + j * 106 + dy, size, al, eout(P(a.t + .1 + j * .12, .45)));
     });
   }
 }
@@ -370,6 +410,7 @@ function sceneField() {
     const [x, yy, a] = pointAt(MOW, MOW_A, s);
     const hold = P(st('b1'), .6), cx = W / 2, cy = Y0 + 3.6 * S;
     sprayDisk(lerp(x, cx, ease(hold)), lerp(yy, cy, ease(hold)), lerp(S / 2, S * 1.5, ease(hold)), lerp(.55, .8, hold));
+    if (T < st('b1')) sprayFx(x, yy, S / 2, flyA * .9);
     drone(lerp(x, cx, ease(hold)), lerp(yy, cy, ease(hold)), lerp(.8, 1.6, ease(hold)), lerp(a, 0, hold), Math.max(flyA, life(st('b1'), st('b2') + 1.2)));
   }
   // problema: el círculo y su etiqueta
@@ -377,8 +418,8 @@ function sceneField() {
   if (diskA > 0 && T > st('b1')) {
     const cx = W / 2, cy = Y0 + 3.6 * S;
     sprayDisk(cx, cy, S * 1.5, diskA * .85);
+    sprayFx(cx, cy, S * 1.5, diskA);
     drone(cx, cy, 1.6, 0, diskA);
-    stats([['todo lo que toca, queda cubierto', 'pink']], diskA * P(wordT('b1', 'Todo'), .4) * (1 - P(st('b2'), .3)));
   }
   // infinitos puntos y caminos libres
   const dotsA = life(wordT('b2', 'infinitos') - .2, st('c1') + .4, .2, .4);
@@ -560,8 +601,7 @@ function sceneTurns() {
     });
     const fa = a2 * P(wordT('d3', 'Cada giro'), .4);
     if (fa > 0) {
-      txt(L.pink, 'cada giro ≈ +⅓', W / 2 + 5, Y0 + 720 + 5, 84, { alpha: fa * .9 });
-      txt(L.blue, 'cada giro ≈ +⅓', W / 2, Y0 + 720, 84, { alpha: fa });
+      headline('cada giro ≈ +⅓', W / 2, Y0 + 720, 84, fa, eout(fa));
       txt(L.blue, 'de cuadrito extra', W / 2, Y0 + 790, 36, { mono: true, alpha: fa });
     }
   }
@@ -613,8 +653,7 @@ function sceneDrones() {
   // la cuenta y el dron que se ahorra
   const fa = a * P(st('f3') + .1, .4);
   if (fa > 0) {
-    txt(L.pink, 'drones = ⌈ L ÷ batería ⌉', W / 2 + 4, 1060 + 4, 58, { alpha: fa * .9 });
-    txt(L.blue, 'drones = ⌈ L ÷ batería ⌉', W / 2, 1060, 58, { alpha: fa });
+    headline('drones = ⌈ L ÷ batería ⌉', W / 2, 1060, 58, fa, eout(fa));
   }
   const t2 = wordT('f3', 'como');
   if (T > t2 - .2) {
@@ -677,6 +716,7 @@ function sceneEnd() {
     const fa = new Path2D(); fa.ellipse(cx, Y0 + 760, 340, 90, 0, 0, 7);
     grass(fa, qa * .8, .45);
     sprayDisk(cx, Y0 + 760, 120, qa * .5);
+    sprayFx(cx, Y0 + 760, 150, qa * .8);
     drone(cx, cy, 3.4, Math.sin(T * .8) * .15, qa);
     const k = back(P(st('g2') + .6, .5));
     L.pink.save(); L.pink.translate(W / 2, Y0 + 1000); L.pink.rotate(-.06); L.pink.scale(k, k);
