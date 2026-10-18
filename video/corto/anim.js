@@ -868,6 +868,9 @@ function sceneEnd() {
     if (cr > 0) {
       const lines = ['Basado en: S. P. Fekete, D. Krupke, M. Perk,', 'C. Rieck y C. Scheffer (2023).', 'The Lawn Mowing Problem:', 'From Algebra to Algorithms. ESA 2023.'];
       lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1070 + i * 34, 25, { mono: true, alpha: cr }));
+      // leyenda que pide la convocatoria
+      const ia = ['Para la elaboración de este video se utilizaron', 'elementos generados mediante inteligencia', 'artificial (IA), que representan menos del 20%', 'del contenido total.'];
+      ia.forEach((s, i) => txt(L.pink, s, W / 2, Y0 + 1250 + i * 32, 24, { mono: true, alpha: cr }));
     }
   }
 }

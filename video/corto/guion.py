@@ -50,7 +50,7 @@ EXTRA = {"a2": 0.2, "c2": 0.3, "c3": 0.3, "d2": 0.4, "e2": 0.3, "e3": 1.1, "e4":
          "f2": 0.4, "f3": 0.6, "g1": 1.3, "g3": 1.2}
 # segundos antes de la primera frase y al final (créditos)
 INICIO = 0.6
-FINAL = 2.5
+FINAL = 3.5
 
 # velocidad de tu grabación (1 = igual; 1.2 = 20 % más rápida, sin cambiar el tono)
 TEMPO_GRABACION = 1.2
