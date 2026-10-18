@@ -56,7 +56,7 @@ Después corre `python build.py`. La animación se ajusta sola a la duración de
 
 | Archivo | Frase |
 |---|---|
-| `f1` | ¿Qué aplicaciones tiene esto? Estiramos la ruta y la medimos. |
+| `f1` | ¿Qué aplicaciones prácticas tiene esto? Primero hay que estirar la ruta y la medimos. |
 | `f2` | Un dron recorre cierta distancia con cada batería. Partimos la ruta en tramos de ese largo y los contamos. |
 | `f3` | Con eso estimamos cuántos drones o cuántas recargas hacen falta. Y como cada giro consume batería, girar menos puede ahorrar un dron entero. |
 
