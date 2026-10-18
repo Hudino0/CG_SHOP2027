@@ -37,7 +37,7 @@ ESCENAS = [
     ]),
     ("cierre", [
         ("g1", "Esto sirve para fumigar cultivos, inspeccionar con cámaras, buscar personas, o guiar robots que podan."),
-        ("g2", "En todos estos casos, la receta es la misma:"),
+        ("g2", "Y en todos estos casos, el algoritmo es el mismo:"),
         ("g3", "Simplificar el terreno, decidir bien cada giro, cubrir todo con el camino más corto."),
     ]),
 ]

@@ -267,38 +267,6 @@ function drone(x, y, s, rot, alpha = 1) {
   p.beginPath(); p.arc(0, 0, 6, 0, 7); p.fillStyle = '#000'; p.fill();
   p.restore();
 }
-// carrito antiguo de perfil, con ojo en el parabrisas (homenaje, dibujo original)
-const CAR = (() => {
-  const body = new Path2D();
-  body.moveTo(-130, 12); body.lineTo(-128, -8); body.quadraticCurveTo(-96, -22, -44, -24);
-  body.quadraticCurveTo(-14, -54, 26, -54); body.quadraticCurveTo(82, -52, 118, -22); body.quadraticCurveTo(132, -12, 130, 12); body.closePath();
-  const glass = new Path2D();
-  glass.moveTo(-36, -26); glass.lineTo(-14, -47); glass.lineTo(8, -49); glass.lineTo(8, -26); glass.closePath();
-  glass.moveTo(16, -48); glass.quadraticCurveTo(62, -47, 90, -26); glass.lineTo(16, -26); glass.closePath();
-  const chrome = new Path2D();
-  chrome.rect(-136, 2, 40, 9); chrome.rect(104, 2, 30, 8); chrome.rect(-90, -6, 190, 4);
-  chrome.moveTo(-114, -8); chrome.arc(-120, -8, 6, 0, 7);
-  const eye = new Path2D(); eye.ellipse(-10, -36, 11, 8, -.15, 0, 7);
-  const rims = new Path2D(); for (const wx of [-78, 76]) { rims.moveTo(wx + 11, 12); rims.arc(wx, 12, 11, 0, 7); }
-  const tires = new Path2D(); for (const wx of [-78, 76]) { tires.moveTo(wx + 22, 12); tires.arc(wx, 12, 22, 0, 7); }
-  return { body, glass, chrome, eye, rims, tires };
-})();
-function car(x, y, s, tilt, alpha) {
-  if (alpha <= 0) return;
-  const inks = [L.blue, L.pink, L.yellow];
-  for (const c of inks) { c.save(); c.globalAlpha *= alpha; c.translate(x, y); c.rotate(tilt); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; c.lineCap = c.lineJoin = 'round'; }
-  const [b, p, yl] = inks;
-  b.fill(CAR.body); b.fill(CAR.tires);
-  // lo claro se cala de la carrocería para que no se vuelva oscuro al imprimir encima
-  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1;
-  b.fill(CAR.glass); b.fill(CAR.chrome); b.fill(CAR.rims); b.restore();
-  yl.fill(CAR.glass); yl.fill(CAR.chrome);
-  yl.save(); yl.globalCompositeOperation = 'destination-out'; yl.globalAlpha = 1; yl.fill(CAR.eye); yl.restore();
-  b.beginPath(); b.arc(-15, -35, 4.5, 0, 7); b.fill();
-  p.fill(CAR.rims); b.beginPath(); b.arc(-78, 12, 4, 0, 7); b.arc(76, 12, 4, 0, 7); b.fill();
-  p.lineWidth = 3; p.beginPath(); p.arc(-118, 2, 8, .4, 1.7); p.stroke();
-  for (const c of inks) c.restore();
-}
 function sprayDisk(x, y, r, alpha) {
   const c = L.yellow; c.save(); c.globalAlpha *= alpha; c.fillStyle = '#000'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.restore();
   const b = L.blue; b.save(); b.globalAlpha *= alpha; b.setLineDash([10, 9]); b.lineWidth = 3; b.strokeStyle = '#000'; b.beginPath(); b.arc(x, y, r, 0, 7); b.stroke(); b.restore();
@@ -388,7 +356,7 @@ const TITLES = [
   ['f2', '05 · ¿cuántos drones?', ['Partirla por', 'batería']],
   ['f3', '05 · ¿cuántos drones?', ['La cuenta']],
   ['g1', '06 · aplicaciones', ['¿Para qué', 'sirve?']],
-  ['g2', '07 · en resumen', ['La receta']],
+  ['g2', '07 · en resumen', ['El mismo', 'algoritmo']],
 ].map(([k, kick, lines]) => ({ t: st(k) - .15, kick, lines }));
 
 function titles() {
@@ -641,21 +609,6 @@ function sceneTurns() {
       const lab = ['= 1', '≈ 1.33', '≈ 1.61'][i];
       txt(L.pink, lab, x + s / 2, y + s + 112, 40, { mono: true, alpha: a2 * P(st('d3') + 1.3 + i * .25, .3) });
     });
-    // guiño: un carrito entra derrapando ("gira a la derecha para ir a la izquierda")
-    const t0 = st('d3') + .2, ca = a2 * (1 - P(wordT('d3', 'cada giro') - .3, .3));
-    if (T > t0 && ca > 0) {
-      const m = eout(P(t0, 1.3)), cx = lerp(W + 220, W / 2 - 200, m), cy = Y0 + 650;
-      const tilt = Math.sin(m * Math.PI) * -.12;
-      const p = L.pink; p.save(); p.globalAlpha = ca * (1 - m) * .8; p.fillStyle = '#000';
-      for (let i = 0; i < 6; i++) { p.beginPath(); p.arc(cx + 175 + i * 26, cy + 26 - (i % 2) * 10, 10 - i, 0, 7); p.fill(); }
-      p.restore();
-      car(cx, cy, 1.25, tilt, ca);
-      const ba = ca * P(t0 + 1.1, .3);
-      if (ba > 0) {
-        tag('¡GIRA A LA DERECHA', W / 2 + 220, cy - 66, 22, ba);
-        tag('PARA IR A LA IZQUIERDA!', W / 2 + 220, cy - 22, 22, ba);
-      }
-    }
     const fa = a2 * P(wordT('d3', 'Cada giro'), .4);
     if (fa > 0) {
       headline('cada giro ≈ +⅓', W / 2, Y0 + 720, 84, fa, eout(fa));
@@ -728,33 +681,113 @@ function sceneDrones() {
 }
 
 // ---------- cierre ----------
-function icon(kind, x, y, s, al) {
-  const b = L.blue, p = L.pink, g = L.green, yl = L.yellow;
-  for (const c of [b, p, g, yl]) { c.save(); c.globalAlpha *= al; c.translate(x, y); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; c.lineCap = 'round'; }
+// mini escena animada de cada aplicación; tc = segundos desde que apareció la tarjeta
+function appScene(kind, x, y, tc, al) {
+  const ls = [L.blue, L.pink, L.green, L.yellow];
+  const clip = new Path2D(); clip.rect(x - 178, y - 188, 356, 262);
+  const ox = x, oy = y - 58;  // centro de la escena
+  for (const c of ls) { c.save(); c.globalAlpha *= al; c.clip(clip); c.translate(ox, oy); c.fillStyle = c.strokeStyle = '#000'; c.lineCap = c.lineJoin = 'round'; }
+  const [b, p, g, yl] = ls;
+  let dr = null;  // dónde dibujar el dron, fuera del recorte
   if (kind === 0) {
-    for (let i = 0; i < 9; i++) { yl.beginPath(); yl.arc(-40 + i * 10, 55 + (i % 3) * 14, 6, 0, 7); yl.fill(); }
-    g.fillStyle = halftone(g, .6, 45, 8); g.fillRect(-80, 70, 160, 40);
+    // fumigar: el dron va y viene sobre los surcos; lo rociado cambia de color
+    for (let r = 0; r < 4; r++) { g.fillStyle = halftone(g, .65, 45, 7); g.fillRect(-178, 28 + r * 26, 356, 16); }
+    const ph = tc * 1.5, dx = 135 * Math.sin(ph);
+    const hi = ph < Math.PI / 2 ? dx : 135, lo = ph < Math.PI ? 0 : 135 * Math.sin(Math.min(ph, 1.5 * Math.PI));
+    for (let r = 0; r < 4; r++) yl.fillRect(lo - 34, 28 + r * 26, hi - lo + 68, 16);
+    for (let i = 0; i < 18; i++) {
+      const f = (tc * 1.8 + i / 18) % 1;
+      p.globalAlpha = al * (1 - f); p.beginPath(); p.arc(dx + ((i * 7) % 9 - 4) * 7 * f, -46 + f * 90, 4, 0, 7); p.fill();
+    }
+    dr = [ox + dx, oy - 70, .7];
   } else if (kind === 1) {
-    b.lineWidth = 7; b.beginPath(); b.roundRect(-70, -40, 140, 95, 14); b.stroke(); b.fillRect(-28, -58, 56, 20);
-    p.beginPath(); p.arc(0, 8, 30, 0, 7); p.fill(); b.lineWidth = 6; b.beginPath(); b.arc(0, 8, 34, 0, 7); b.stroke();
+    // inspeccionar: el dron recorre un puente con la cámara y encuentra una grieta
+    b.lineWidth = 6; b.beginPath(); b.moveTo(-178, 40); b.lineTo(178, 40); b.stroke();
+    b.lineWidth = 4; b.beginPath(); for (let i = 0; i <= 8; i++) { const xx = -160 + i * 40; b[i ? 'lineTo' : 'moveTo'](xx, i % 2 ? -10 : 40); } b.stroke();
+    b.lineWidth = 10; b.beginPath(); b.moveTo(-90, 40); b.lineTo(-90, 140); b.moveTo(90, 40); b.lineTo(90, 140); b.stroke();
+    const xv = -120 + ((tc * 75) % 240);
+    p.lineWidth = 4; p.setLineDash([6, 6]); p.beginPath(); p.moveTo(xv, -70); p.lineTo(xv - 40, 0); p.moveTo(xv, -70); p.lineTo(xv + 40, 0); p.stroke(); p.setLineDash([]);
+    p.lineWidth = 5;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { p.beginPath(); p.moveTo(xv + sx * 42, 18 + sy * 26); p.lineTo(xv + sx * 42, 18 + sy * 40); p.lineTo(xv + sx * 28, 18 + sy * 40); p.stroke(); }
+    const fl = Math.max(0, 1 - ((tc * .9) % 1) * 7);
+    if (fl > 0) { yl.globalAlpha = al * fl * .8; yl.fillRect(xv - 42, -22, 84, 80); yl.globalAlpha = al; }
+    if (tc > 2.2) {
+      const f = ((tc - 2.2) * .9) % 1;
+      p.lineWidth = 4; p.beginPath(); p.moveTo(54, 8); p.lineTo(62, 20); p.lineTo(56, 30); p.stroke();
+      p.globalAlpha = al * (1 - f); p.beginPath(); p.arc(58, 20, 14 + 30 * f, 0, 7); p.stroke();
+    }
+    dr = [ox + xv, oy - 82, .6];
   } else if (kind === 2) {
-    p.lineWidth = 34; for (let i = 0; i < 4; i++) { p.beginPath(); p.arc(0, 0, 55, i * Math.PI / 2 + .1, i * Math.PI / 2 + Math.PI / 4); p.stroke(); }
-    b.lineWidth = 5; b.beginPath(); b.arc(0, 0, 72, 0, 7); b.stroke(); b.beginPath(); b.arc(0, 0, 38, 0, 7); b.stroke();
+    // buscar personas: espiral cuadrada sobre el agua hasta encontrar a alguien
+    b.lineWidth = 3; b.globalAlpha = al * .5;
+    for (let r = 0; r < 6; r++) { b.beginPath(); for (let i = 0; i <= 36; i++) { const xx = -178 + i * 10; const yy = -100 + r * 44 + 5 * Math.sin(i * .9 + tc * 3 + r); b[i ? 'lineTo' : 'moveTo'](xx, yy); } b.stroke(); }
+    b.globalAlpha = al;
+    const sp = [[0, 0]]; let cx = 0, cy = 0, d = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    for (let i = 0; i < 9; i++) { const l = 28 * (Math.floor(i / 2) + 1); cx += d[i % 4][0] * l; cy += d[i % 4][1] * l; sp.push([cx, cy]); }
+    const A = arcs(sp), s = Math.min(A[A.length - 1], tc * 150);
+    b.lineWidth = 4; b.setLineDash([10, 8]); poly(b, partial(sp, A, s)); b.stroke(); b.setLineDash([]);
+    const [hx, hy] = pointAt(sp, A, s);
+    const found = clamp((tc - 2.9) / .3);
+    if (found > 0) {
+      const px = 84, py = 56, f = ((tc - 2.9) * .8) % 1;
+      p.lineWidth = 5; p.globalAlpha = al * (1 - f); p.beginPath(); p.arc(px, py, 16 + 40 * f, 0, 7); p.stroke(); p.globalAlpha = al;
+      p.lineWidth = 9; p.beginPath(); p.arc(px, py, 15, 0, 7); p.stroke();
+      b.beginPath(); b.arc(px, py - 4, 6 * found, 0, 7); b.fill();
+    }
+    dr = [ox + hx, oy + hy, .55];
   } else {
-    g.fillStyle = halftone(g, .6, 45, 8); g.fillRect(-85, 30, 170, 45);
-    b.lineWidth = 6; b.beginPath(); b.roundRect(-60, -40, 120, 70, 20); b.stroke();
-    b.beginPath(); b.arc(-38, 36, 16, 0, 7); b.arc(38, 36, 16, 0, 7); b.fill();
-    p.beginPath(); p.arc(0, -5, 16, 0, 7); p.fill();
+    // robot que poda: va por franjas y deja el pasto cortado
+    g.fillStyle = halftone(g, .65, 45, 7); g.fillRect(-178, -130, 356, 270);
+    const rows = []; for (let r = 0; r < 5; r++) { const yy = -100 + r * 50; rows.push(r % 2 ? [150, yy] : [-150, yy], r % 2 ? [-150, yy] : [150, yy]); }
+    const A = arcs(rows), s = Math.min(A[A.length - 1], tc * 190), done = partial(rows, A, s);
+    yl.lineWidth = 46; yl.lineCap = 'butt'; poly(yl, done); yl.stroke();
+    const [rx, ry, ra] = pointAt(rows, A, s);
+    b.save(); b.translate(rx, ry); b.rotate(ra);
+    b.beginPath(); b.roundRect(-26, -18, 52, 36, 10); b.fill();
+    b.fillRect(-20, -24, 14, 6); b.fillRect(6, -24, 14, 6); b.fillRect(-20, 18, 14, 6); b.fillRect(6, 18, 14, 6);
+    b.restore();
+    p.beginPath(); p.arc(rx, ry, 8, 0, 7); p.fill();
   }
-  for (const c of [b, p, g, yl]) c.restore();
-  if (kind === 0) drone(x, y - 20 * s, 1.1 * s, 0, al);
+  for (const c of ls) c.restore();
+  if (dr) drone(dr[0], dr[1], dr[2], 0, al);
+}
+
+// pista de carreras: la ruta final, suavizada, con su auto
+const TRACK = (() => {
+  let pts = FINAL.slice(0, -1);
+  for (let it = 0; it < 3; it++) {
+    const q = [];
+    pts.forEach((a, i) => { const b = pts[(i + 1) % pts.length]; q.push([lerp(a[0], b[0], .25), lerp(a[1], b[1], .25)], [lerp(a[0], b[0], .75), lerp(a[1], b[1], .75)]); });
+    pts = q;
+  }
+  pts.push(pts[0]);
+  const A = arcs(pts);
+  return { pts, A, len: A[A.length - 1] };
+})();
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+function trackAt(s) { const l = TRACK.len; return pointAt(TRACK.pts, TRACK.A, ((s % l) + l) % l); }
+// auto clásico visto desde arriba, apuntando hacia +x
+function hornet(x, y, ang, s, al) {
+  const b = L.blue, yl = L.yellow, p = L.pink;
+  for (const c of [b, yl, p]) { c.save(); c.globalAlpha *= al; c.translate(x, y); c.rotate(ang); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; }
+  p.fillRect(-26, -19, 14, 6); p.fillRect(14, -19, 14, 6); p.fillRect(-26, 13, 14, 6); p.fillRect(14, 13, 14, 6);
+  b.beginPath(); b.roundRect(-36, -16, 72, 32, 12); b.fill();
+  const glass = new Path2D();
+  glass.moveTo(6, -12); glass.lineTo(16, -10); glass.lineTo(16, 10); glass.lineTo(6, 12); glass.closePath();
+  glass.moveTo(-20, -10); glass.lineTo(-14, -12); glass.lineTo(-14, 12); glass.lineTo(-20, 10); glass.closePath();
+  glass.moveTo(36, -9); glass.arc(32, -9, 4, 0, 7); glass.moveTo(36, 9); glass.arc(32, 9, 4, 0, 7);
+  const badge = new Path2D(); badge.arc(-4, 0, 9, 0, 7);
+  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1; b.fill(glass); b.fill(badge); b.restore();
+  yl.fill(glass);
+  b.save(); b.rotate(Math.PI / 2); b.font = font(DISPLAY, 11); b.textAlign = 'center'; b.textBaseline = 'middle'; b.fillText('51', 0, 4); b.restore();
+  for (const c of [b, yl, p]) c.restore();
 }
 function sceneEnd() {
   const a = life(SC.cierre.start - .1, TL.total + 1, .3, .3);
   if (a <= 0) return;
   // g1: cuatro tarjetas
   const join = ease(P(st('g2'), .9)), ca = a * (1 - P(st('g2') + .55, .35));
-  const TX = W / 2, TY = Y0 + 200;  // dónde queda la miniatura del campo
+  const TX = W / 2, TY = Y0 + 292;  // dónde queda la pista
   const cards = [['fumigar', 'cultivos', 'fumigar'], ['inspeccionar', 'con cámaras', 'inspeccionar'], ['buscar', 'personas', 'buscar'], ['robots', 'que podan', 'robots']];
   if (ca > 0) cards.forEach(([l1, l2, w], i) => {
     const k = back(P(wordT('g1', w) - .2, .45)); if (k <= 0) return;
@@ -762,22 +795,49 @@ function sceneEnd() {
     const x = lerp(x0, TX, join), y = lerp(y0, TY, join), rot = [-.04, .03, .025, -.035][i] * (1 + 4 * join);
     const sc = k * lerp(1, .35, join);
     for (const c of Object.values(L)) { c.save(); c.translate(x, y); c.rotate(rot); c.scale(sc, sc); c.translate(-x, -y); }
-    const p = L.pink; p.save(); p.globalAlpha = ca; p.fillStyle = halftone(p, .35, 15, 8); p.fillRect(x - 190 + 14, y - 200 + 14, 380, 400); p.restore();
+    const p = L.pink; p.save(); p.globalAlpha = ca; p.fillStyle = halftone(p, .45, 15, 8); p.fillRect(x - 190 + 14, y - 200 + 14, 380, 400);
+    p.globalCompositeOperation = 'destination-out'; p.globalAlpha = 1; p.fillStyle = '#000'; p.fillRect(x - 190, y - 200, 380, 400); p.restore();
     const b = L.blue; b.save(); b.globalAlpha = ca; b.lineWidth = 5; b.strokeStyle = '#000'; b.strokeRect(x - 190, y - 200, 380, 400); b.restore();
-    icon(i, x, y - 40, 1, ca);
+    appScene(i, x, y, T - (wordT('g1', w) - .2), ca);
     txt(L.blue, l1, x, y + 120, 44, { alpha: ca });
     txt(L.blue, l2, x, y + 165, 30, { mono: true, alpha: ca });
     for (const c of Object.values(L)) c.restore();
   });
-  // g2: de las tarjetas sale el campo con su ruta: la misma receta para todos
+  // g2: de las tarjetas sale el campo, y la ruta se vuelve una pista de carreras
   const ma = a * P(st('g2') + .5, .35);
   if (ma > 0) {
-    const k = .4 * back(P(st('g2') + .5, .5)), cx = X0 + CAMPO.cols * S / 2, cy = Y0 + CAMPO.rows * S / 2;
+    const k = .62 * back(P(st('g2') + .5, .5)), cx = X0 + CAMPO.cols * S / 2, cy = Y0 + CAMPO.rows * S / 2;
+    const toScreen = (lx, ly) => [TX + (lx - cx) * .62, TY + (ly - cy) * .62];
     for (const c of Object.values(L)) { c.save(); c.translate(TX, TY); c.scale(k, k); c.translate(-cx, -cy); }
-    const y = L.yellow; y.save(); y.globalAlpha = ma; y.fillStyle = '#000'; y.fill(fieldPath); y.restore();
-    const b = L.blue; b.save(); b.globalAlpha = ma; b.lineWidth = 8; b.strokeStyle = '#000'; b.stroke(fieldPath); b.restore();
-    strokePts('blue', FINAL, 14, ma);
+    grass(fieldPath, ma, .5);
+    strokePts('pink', TRACK.pts, 74, ma, { dash: [22, 22] });
+    strokePts('blue', TRACK.pts, 64, ma);
+    const pk = L.pink; pk.save(); pk.globalCompositeOperation = 'destination-out'; pk.lineWidth = 64; pk.lineJoin = 'round'; poly(pk, TRACK.pts); pk.stroke(); pk.restore();
+    const bl = L.blue; bl.save(); bl.globalCompositeOperation = 'destination-out'; bl.lineWidth = 54; bl.lineJoin = 'round'; poly(bl, TRACK.pts); bl.stroke(); bl.restore();
+    strokePts('yellow', TRACK.pts, 54, ma);
+    // línea de meta a cuadros
+    const [mx, my, mang] = trackAt(0);
+    for (const c of [L.blue, L.yellow]) { c.save(); c.translate(mx, my); c.rotate(mang); }
+    L.blue.save(); L.blue.globalCompositeOperation = 'destination-out'; L.blue.fillRect(-8, -27, 16, 54); L.blue.restore();
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2) { L.blue.globalAlpha = ma; L.blue.fillStyle = '#000'; L.blue.fillRect(-8 + j * 8, -27 + i * 9, 8, 9); }
+    for (const c of [L.blue, L.yellow]) c.restore();
+    strokePts('blue', TRACK.pts, 3, ma * .7, { dash: [18, 22] });
     for (const c of Object.values(L)) c.restore();
+    // el auto: acelera y da vueltas; en las curvas la cola se abre y deja humo
+    const t0 = st('g2') + 1, tau = T - t0;
+    if (tau > 0 && k >= .55) {
+      const v = TRACK.len / 4.2, s = v * (tau < 1 ? tau * tau / 2 : tau - .5);
+      const head = d => trackAt(s + d)[2];
+      for (let j = 16; j >= 1; j--) {
+        const sj = s - j * 28, cj = Math.abs(angDiff(trackAt(sj + 50)[2], trackAt(sj - 50)[2]));
+        if (cj < .45 || sj < 0) continue;
+        const [lx, ly] = trackAt(sj), [px, py] = toScreen(lx, ly), r = 5 + j * 1.6, al = ma * (1 - j / 17) * Math.min(1, cj);
+        const pk = L.pink; pk.save(); pk.globalAlpha = al * .55; pk.fillStyle = '#000'; pk.beginPath(); pk.arc(px, py, r, 0, 7); pk.fill(); pk.restore();
+      }
+      const [lx, ly] = trackAt(s), [px, py] = toScreen(lx, ly);
+      const drift = Math.max(-.9, Math.min(.9, angDiff(head(70), head(-70)) * 1.1));
+      hornet(px, py, head(0) + drift, 1.05, ma * P(t0, .3));
+    }
   }
   // g3: resumen y créditos
   const ra = a * P(st('g3') - .2, .3);
@@ -785,17 +845,17 @@ function sceneEnd() {
     const items = [['Simplificar', 'el terreno → grafo', 'Simplificar'], ['Decidir', 'cada giro → piezas', 'Decidir'], ['Cubrir todo', 'con el camino más corto', 'Cubrir']];
     items.forEach(([h, s2, w], i) => {
       const k = eout(P(wordT('g3', w) - .15, .45)); if (k <= 0) return;
-      const y = Y0 + 520 + i * 190, x = 150 + (1 - k) * 60;
-      const yl = L.yellow; yl.save(); yl.globalAlpha = ra * k; yl.fillStyle = '#000'; yl.beginPath(); yl.arc(x + 40, y - 20, 50, 0, 7); yl.fill(); yl.restore();
-      const p = L.pink; p.save(); p.globalAlpha = ra * k; p.lineWidth = 6; p.strokeStyle = '#000'; p.beginPath(); p.arc(x + 40, y - 20, 50, 0, 7); p.stroke(); p.restore();
-      txt(L.blue, String(i + 1), x + 40, y + 2, 64, { alpha: ra * k });
-      txt(L.blue, h, x + 130, y, 70, { align: 'left', alpha: ra * k });
-      txt(L.blue, s2, x + 130, y + 52, 32, { mono: true, align: 'left', alpha: ra * k });
+      const y = Y0 + 700 + i * 130, x = 160 + (1 - k) * 60;
+      const yl = L.yellow; yl.save(); yl.globalAlpha = ra * k; yl.fillStyle = '#000'; yl.beginPath(); yl.arc(x + 40, y - 18, 42, 0, 7); yl.fill(); yl.restore();
+      const p = L.pink; p.save(); p.globalAlpha = ra * k; p.lineWidth = 6; p.strokeStyle = '#000'; p.beginPath(); p.arc(x + 40, y - 18, 42, 0, 7); p.stroke(); p.restore();
+      txt(L.blue, String(i + 1), x + 40, y, 54, { alpha: ra * k });
+      txt(L.blue, h, x + 115, y, 60, { align: 'left', alpha: ra * k });
+      txt(L.blue, s2, x + 115, y + 42, 28, { mono: true, align: 'left', alpha: ra * k });
     });
     const cr = ra * P(en('g3') + .2, .6);
     if (cr > 0) {
       const lines = ['Basado en: S. P. Fekete, D. Krupke, M. Perk,', 'C. Rieck y C. Scheffer (2023).', 'The Lawn Mowing Problem:', 'From Algebra to Algorithms. ESA 2023.'];
-      lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1045 + i * 36, 26, { mono: true, alpha: cr }));
+      lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1070 + i * 34, 25, { mono: true, alpha: cr }));
     }
   }
 }
@@ -824,7 +884,7 @@ function sfxCues() {
   c.push([st('c2') + .2, 'pop', .6], [st('c2') + 1.2, 'pop', .5]);
   c.push([st('d1') + 2.2, 'error', .5]);
   ['recto', 'giro', 'vuelta'].forEach((w, i) => c.push([Math.min(wordT('d2', w) - .15, st('d2') + .5 + i * .45), 'pop', .6]));
-  c.push([st('d3') + .2, 'whoosh', .5], [st('d3') + 1.3, 'ding', .45]);
+  c.push([st('d3') + 1.3, 'ding', .45]);
   const t1 = st('e1') + .3, fly = Math.max(2.4, en('e1') - t1 - .2);
   c.push([t1, 'hum:' + fly.toFixed(2), .3], [t1 + fly - .2, 'error', .45], [st('e2') + 1.4, 'success', .5]);
   const steps = CH.length - 1, t3 = st('e3') + .2, D = (st('e4') - .2 - t3) / steps;
@@ -836,7 +896,7 @@ function sfxCues() {
   for (let i = 0; i < Math.ceil(lengthOf(CH[0]) / BATT); i++) c.push([t2 + .5 + i * .35, 'pop', .45]);
   c.push([t2 + 2.6, 'boom', .6]);
   ['fumigar', 'inspeccionar', 'buscar', 'robots'].forEach(w => c.push([wordT('g1', w) - .2, 'pop', .55]));
-  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6]);
+  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6], [st('g2') + 1, 'hum:' + (TL.total - st('g2') - 1).toFixed(2), .35]);
   ['Simplificar', 'Decidir', 'Cubrir'].forEach(w => c.push([wordT('g3', w) - .15, 'click', .6]));
   c.push([en('g3') + .2, 'success', .5]);
   return c.filter(x => x[0] >= 0).map(([t, n, v]) => ({ t: +t.toFixed(3), name: n, vol: v }));
