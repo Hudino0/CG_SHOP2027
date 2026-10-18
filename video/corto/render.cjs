@@ -8,7 +8,7 @@ const path = require('path');
 
 const ROOT = __dirname;
 const BUILD = path.join(ROOT, 'build');
-const URL = 'file://' + path.join(ROOT, 'anim.html') + '?render';
+const URL = 'file://' + path.join(ROOT, 'anim.html') + '?render' + (process.env.PAL ? '&pal=' + process.env.PAL : '');
 
 async function open(browser) {
   const page = await browser.newPage({ viewport: { width: 1080, height: 1920 } });

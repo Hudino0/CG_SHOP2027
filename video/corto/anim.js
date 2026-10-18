@@ -6,7 +6,14 @@
 'use strict';
 
 const W = 1080, H = 1920;
-const INK = { yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4' };
+// cada capa tiene un papel fijo: yellow = claro (rociado, marcador), green = campo,
+// pink = acento (#e4007c), blue = tinta de texto y líneas. La paleta sólo cambia los colores.
+const PALETAS = {
+  riso: { yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4' },
+  mexicana: { yellow: '#ffa400', green: '#00c45a', pink: '#e4007c', blue: '#6e00e4' },
+  turquesa: { yellow: '#ffe800', green: '#00c9c0', pink: '#e4007c', blue: '#6e00e4' },
+};
+const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'riso'];
 const ORDER = ['yellow', 'green', 'pink', 'blue'];
 const MIS = { yellow: [-3, 2], green: [2, 3], pink: [4, -2], blue: [-1, -1] };
 const PAPER = '#f3ecdc';
