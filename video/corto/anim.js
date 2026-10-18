@@ -38,7 +38,7 @@ const back = t => { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) +
 const P = (t0, d) => clamp((T - t0) / d);
 const st = k => K[k].start, en = k => K[k].end;
 // momento aproximado en que se dice una palabra de la frase k
-const wordT = (k, w) => { const l = K[k]; const i = l.text.indexOf(w); return lerp(l.start, l.end, Math.max(0, i) / l.text.length); };
+const wordT = (k, w) => { const l = K[k]; const i = l.text.toLowerCase().indexOf(w.toLowerCase()); return lerp(l.start, l.end, Math.max(0, i) / l.text.length); };
 // opacidad de un elemento que vive entre a y b
 const life = (a, b, fi = .3, fo = .3) => Math.min(P(a, fi), 1 - P(b, fo));
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -226,6 +226,12 @@ function partial(pts, A, s) {
   if (s < A[A.length - 1]) { const p = pointAt(pts, A, s); out.push([p[0], p[1]]); }
   return out;
 }
+function slice(pts, A, s0, s1) {
+  const out = [pointAt(pts, A, s0).slice(0, 2)];
+  for (let i = 1; i < pts.length; i++) if (A[i] > s0 && A[i] < s1) out.push(pts[i]);
+  out.push(pointAt(pts, A, s1).slice(0, 2));
+  return out;
+}
 function poly(ctx, pts, close) { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); if (close) ctx.closePath(); }
 const CH = CAMPO.chain;
 const TURN_EXTRA = 2 * Math.hypot(.5 * K_P, .5 * (1 + K_P)) - 1;  // ≈ 0.326
@@ -356,7 +362,7 @@ const TITLES = [
   ['f2', '05 · ¿cuántos drones?', ['Partirla por', 'batería']],
   ['f3', '05 · ¿cuántos drones?', ['La cuenta']],
   ['g1', '06 · aplicaciones', ['¿Para qué', 'sirve?']],
-  ['g2', '06 · aplicaciones', ['Siguiente', 'paso']],
+  ['g2', '06 · en equipo', ['Un tramo', 'por dron']],
   ['g3', '06 · en resumen', ['Cubrir todo']],
 ].map(([k, kick, lines]) => ({ t: st(k) - .15, kick, lines }));
 
@@ -441,7 +447,7 @@ function sceneField() {
     p.restore();
     stats([['∞ puntos', 'pink']], dotsA * P(wordT('b2', 'infinitos'), .3) * (1 - P(st('c1') + .6, .3)));
     SQUIG.forEach((sq, k) => {
-      const t0 = wordT('b2', 'puede') + k * .3, A = arcs(sq);
+      const t0 = wordT('b2', 'moverse') + k * .3, A = arcs(sq);
       if (T > t0) strokePts('blue', partial(sq, A, A[A.length - 1] * eout(P(t0, 1.2))), 5, dotsA, { dash: [14, 10] });
     });
   }
@@ -720,18 +726,24 @@ function sceneEnd() {
     txt(L.blue, l2, x, y + 165, 30, { mono: true, alpha: ca });
     for (const c of Object.values(L)) c.restore();
   });
-  // g2: el cuadricóptero real
+  // g2: los drones de la cuenta se reparten la ruta y cubren el campo a la vez
   const qa = a * life(st('g2') - .2, st('g3'), .4, .4);
   if (qa > 0) {
-    const cx = W / 2, cy = Y0 + 470 + Math.sin(T * 2.2) * 14;
-    const fa = new Path2D(); fa.ellipse(cx, Y0 + 760, 340, 90, 0, 0, 7);
-    grass(fa, qa * .8, .45);
-    sprayDisk(cx, Y0 + 760, 120, qa * .5);
-    drone(cx, cy, 3.4, Math.sin(T * .8) * .15, qa);
-    const k = back(P(st('g2') + .6, .5));
-    L.pink.save(); L.pink.translate(W / 2, Y0 + 1000); L.pink.rotate(-.06); L.pink.scale(k, k);
-    L.pink.globalAlpha = qa; L.pink.lineWidth = 6; L.pink.strokeStyle = '#000'; L.pink.strokeRect(-330, -60, 660, 100);
-    txt(L.pink, 'cuadricóptero real', 0, 10, 60, {}); L.pink.restore();
+    const n = Math.ceil(lengthOf(CH[CH.length - 1]) / BATT), A = arcs(FINAL), seg = A[A.length - 1] / n;
+    const pr = ease(P(st('g2') + .5, Math.max(1.5, en('g2') - st('g2') - .3)));
+    grass(fieldPath, qa, .55);
+    const b = L.blue; b.save(); b.globalAlpha = qa * .5; b.lineWidth = 2; b.strokeStyle = '#000'; b.stroke(fieldPath); b.restore();
+    strokePts('blue', FINAL, 3, qa * .45, { dash: [8, 10] });
+    for (let i = 0; i < n; i++) {
+      const s0 = i * seg, s1 = s0 + seg * pr, part = slice(FINAL, A, s0, s1);
+      const y = L.yellow; y.save(); y.globalAlpha = qa; y.clip(fieldPath); y.lineWidth = S; y.lineCap = 'round'; y.lineJoin = 'round'; y.strokeStyle = '#000'; poly(y, part); y.stroke(); y.restore();
+      strokePts('blue', part, 7, qa);
+      const [mx, my] = pointAt(FINAL, A, s0);
+      const p = L.pink; p.save(); p.globalAlpha = qa; p.fillStyle = '#000'; p.beginPath(); p.arc(mx, my, 12, 0, 7); p.fill(); p.restore();
+      const [x, yy, ang] = pointAt(FINAL, A, s1);
+      drone(x, yy, .75, ang, qa);
+    }
+    stats([[`${n} drones · ${n} tramos`]], qa * P(st('g2') + .5, .4));
   }
   // g3: resumen y créditos
   const ra = a * P(st('g3') - .2, .3);
@@ -790,7 +802,7 @@ function sfxCues() {
   for (let i = 0; i < Math.ceil(lengthOf(CH[0]) / BATT); i++) c.push([t2 + .5 + i * .35, 'pop', .45]);
   c.push([t2 + 2.6, 'boom', .6]);
   ['fumigar', 'inspeccionar', 'buscar', 'robots'].forEach(w => c.push([wordT('g1', w) - .2, 'pop', .55]));
-  c.push([st('g2') + .6, 'ding', .4]);
+  c.push([st('g2') + .4, 'hum:' + Math.max(1.5, en('g2') - st('g2')).toFixed(2), .3], [en('g2'), 'ding', .4]);
   ['Simplificar', 'Decidir', 'Cubrir'].forEach(w => c.push([wordT('g3', w) - .15, 'click', .6]));
   c.push([en('g3') + .2, 'success', .5]);
   return c.filter(x => x[0] >= 0).map(([t, n, v]) => ({ t: +t.toFixed(3), name: n, vol: v }));

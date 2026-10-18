@@ -17,22 +17,22 @@ Después corre `python build.py`. La animación se ajusta sola a la duración de
 
 | Archivo | Frase |
 |---|---|
-| `a1` | ¿Cuántos drones necesitas para fumigar todo este campo? |
-| `a2` | Para saberlo, primero hay que encontrar la ruta más corta que lo cubra todo. |
+| `a1` | ¿Cuántos drones harían falta para fumigar un campo entero como este? |
+| `a2` | Para responder eso, primero hay que encontrar la ruta más corta que lo cubra por completo. |
 
 ## Problema
 
 | Archivo | Frase |
 |---|---|
-| `b1` | El dron rocía un círculo debajo de él. Todo lo que toca ese círculo queda cubierto. |
-| `b2` | Los matemáticos lo llaman el problema de cortar el césped. Y es difícil: el campo tiene infinitos puntos, y el dron puede ir por donde quiera. |
+| `b1` | El dron rocía un círculo justo debajo de él; todo lo que toca ese círculo queda cubierto. |
+| `b2` | Este es el problema de cortar el césped, y es difícil: el campo tiene infinitos puntos y el dron puede moverse como quiera. |
 
 ## Simplificar
 
 | Archivo | Frase |
 |---|---|
-| `c1` | El truco es simplificar. Cubrimos el campo con cuadritos del ancho del círculo. |
-| `c2` | Cada cuadrito se vuelve un punto, y unimos a los vecinos. Esto es un grafo de cuadrícula. |
+| `c1` | El truco está en simplificar. Cubrimos el campo con cuadritos del mismo ancho que el círculo. |
+| `c2` | Cada cuadrito se convierte en un punto, y unimos los puntos vecinos. Así se forma un grafo de cuadrícula. |
 | `c3` | Ahora el problema es finito: pasar por todos los puntos con el recorrido más corto. El famoso problema del viajante. |
 
 ## Giros
@@ -41,29 +41,29 @@ Después corre `python build.py`. La animación se ajusta sola a la duración de
 |---|---|
 | `d1` | Pero el dron no es un punto. Si gira justo en el centro, una esquina se queda sin rociar. |
 | `d2` | Por eso, en cada cuadrito el algoritmo elige una pieza: recto, giro o vuelta en U. |
-| `d3` | En el giro, el camino se abre para alcanzar la esquina. Cada giro cuesta como un tercio de cuadrito extra. |
+| `d3` | En el giro, el camino se ensancha para alcanzar la esquina. Y cada giro cuesta más o menos un tercio de cuadrito extra. |
 
 ## Algoritmo
 
 | Archivo | Frase |
 |---|---|
 | `e1` | Así decide el algoritmo de Fekete y sus coautores. Paso uno: un recorrido del viajante. |
-| `e2` | Paso dos: la pieza correcta en cada cuadrito. Ya no queda ninguna esquina sin cubrir. |
-| `e3` | Paso tres: toma una ventana pequeña, busca cómo girar menos, y repite por todo el campo. |
-| `e4` | Menos giros, ruta más corta. |
+| `e2` | Paso dos: elegir la pieza correcta en cada cuadrito. Así ya no queda ninguna esquina sin cubrir. |
+| `e3` | Paso tres: tomar una ventana pequeña, buscar cómo girar menos y repetirlo por todo el campo. |
+| `e4` | Menos giros equivalen a una ruta más corta. |
 
 ## Drones
 
 | Archivo | Frase |
 |---|---|
-| `f1` | Ahora lo práctico. Estiramos la ruta y la medimos. |
-| `f2` | Un dron vuela cierta distancia con una batería. Partimos la ruta en tramos de ese largo, y los contamos. |
-| `f3` | Eso estima cuántos drones, o cuántas recargas, hacen falta. Y como cada giro gasta batería, girar menos puede ahorrar un dron entero. |
+| `f1` | Ahora viene lo práctico. Estiramos la ruta y la medimos. |
+| `f2` | Un dron recorre cierta distancia con cada batería. Partimos la ruta en tramos de ese largo y los contamos. |
+| `f3` | Con eso estimamos cuántos drones o cuántas recargas hacen falta. Y como cada giro consume batería, girar menos puede ahorrar un dron entero. |
 
 ## Cierre
 
 | Archivo | Frase |
 |---|---|
-| `g1` | Sirve para fumigar cultivos, inspeccionar con cámaras, buscar personas, o robots que podan. |
-| `g2` | Y el siguiente paso: probarlo en un cuadricóptero real. |
-| `g3` | Simplificar el terreno. Decidir bien cada giro. Cubrir todo, con el camino más corto. |
+| `g1` | Esto sirve para fumigar cultivos, inspeccionar con cámaras, buscar personas, o guiar robots que podan. |
+| `g2` | De vuelta a nuestro campo: cada dron toma su tramo de la ruta, y entre los cuatro lo cubren todo. |
+| `g3` | Simplificar el terreno, decidir bien cada giro, cubrir todo con el camino más corto. |
