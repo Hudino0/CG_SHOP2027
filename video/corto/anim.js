@@ -11,9 +11,9 @@ const W = 1080, H = 1920;
 const PALETAS = {
   riso: { paper: '#f3ecdc', yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4' },
   // colores de la paleta del rosa mexicano: complementario, monocromático y análogos
-  malaquita: { paper: '#ffe4f3', yellow: '#ffb1db', green: '#00e468', pink: '#e4007c', blue: '#4b0029' },
-  turquesa: { paper: '#ffe4f3', yellow: '#ffb1db', green: '#00e4da', pink: '#e4007c', blue: '#6800e4' },
-  mixta: { paper: '#ffe4f3', yellow: '#ff7ec4', green: '#00e4da', pink: '#e4007c', blue: '#4b0029' },
+  malaquita: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e468', pink: '#e4007c', blue: '#4b0029' },
+  turquesa: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e4da', pink: '#e4007c', blue: '#6800e4' },
+  mixta: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#00e4da', pink: '#e4007c', blue: '#4b0029' },
 };
 const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'malaquita'];
 const ORDER = ['yellow', 'green', 'pink', 'blue'];
