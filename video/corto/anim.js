@@ -9,14 +9,15 @@ const W = 1080, H = 1920;
 // cada capa tiene un papel fijo: yellow = claro (rociado, marcador), green = campo,
 // pink = acento (#e4007c), blue = tinta de texto y líneas. La paleta sólo cambia los colores.
 const PALETAS = {
-  riso: { yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4' },
-  mexicana: { yellow: '#ffa400', green: '#00c45a', pink: '#e4007c', blue: '#6e00e4' },
-  turquesa: { yellow: '#ffe800', green: '#00c9c0', pink: '#e4007c', blue: '#6e00e4' },
+  riso: { paper: '#f3ecdc', yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4' },
+  // colores de la paleta del rosa mexicano: complementario, monocromático y análogos
+  malaquita: { paper: '#ffe4f3', yellow: '#ffb1db', green: '#00e468', pink: '#e4007c', blue: '#4b0029' },
+  turquesa: { paper: '#ffe4f3', yellow: '#ffb1db', green: '#00e4da', pink: '#e4007c', blue: '#6800e4' },
+  mixta: { paper: '#ffe4f3', yellow: '#ff7ec4', green: '#00e4da', pink: '#e4007c', blue: '#4b0029' },
 };
-const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'riso'];
+const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'malaquita'];
 const ORDER = ['yellow', 'green', 'pink', 'blue'];
 const MIS = { yellow: [-3, 2], green: [2, 3], pink: [4, -2], blue: [-1, -1] };
-const PAPER = '#f3ecdc';
 const DISPLAY = '800 {s}px Bricolage, sans-serif';
 const MONO = '700 {s}px "Space Mono", "DejaVu Sans Mono", monospace';
 const font = (f, s) => f.replace('{s}', s);
@@ -56,7 +57,7 @@ function texture(seed, fn) {
   return c;
 }
 const paper = texture(3, (d, r) => {
-  const base = [0xf3, 0xec, 0xdc];
+  const base = [1, 3, 5].map(i => parseInt(INK.paper.slice(i, i + 2), 16));
   for (let i = 0; i < d.length; i += 4) {
     const n = (r() - .5) * 10 + (r() < .004 ? -18 : 0);
     d[i] = base[0] + n; d[i + 1] = base[1] + n; d[i + 2] = base[2] + n * 1.2; d[i + 3] = 255;
@@ -96,6 +97,8 @@ function composite() {
     tctx.globalCompositeOperation = 'source-over';
     tctx.clearRect(0, 0, W, H);
     tctx.drawImage(L[k].canvas, 0, 0);
+    // lo rociado ya no es pasto: la tinta clara borra al campo debajo
+    if (k === 'green') { tctx.globalCompositeOperation = 'destination-out'; tctx.drawImage(L.yellow.canvas, 0, 0); }
     tctx.globalCompositeOperation = 'source-in';
     tctx.fillStyle = INK[k];
     tctx.fillRect(0, 0, W, H);
@@ -417,7 +420,6 @@ function sceneField() {
     const [x, yy, a] = pointAt(MOW, MOW_A, s);
     const hold = P(st('b1'), .6), cx = W / 2, cy = Y0 + 3.6 * S;
     sprayDisk(lerp(x, cx, ease(hold)), lerp(yy, cy, ease(hold)), lerp(S / 2, S * 1.5, ease(hold)), lerp(.55, .8, hold));
-    if (T < st('b1')) sprayFx(x, yy, S / 2, flyA * .9);
     drone(lerp(x, cx, ease(hold)), lerp(yy, cy, ease(hold)), lerp(.8, 1.6, ease(hold)), lerp(a, 0, hold), Math.max(flyA, life(st('b1'), st('b2') + 1.2)));
   }
   // problema: el círculo y su etiqueta
@@ -425,7 +427,7 @@ function sceneField() {
   if (diskA > 0 && T > st('b1')) {
     const cx = W / 2, cy = Y0 + 3.6 * S;
     sprayDisk(cx, cy, S * 1.5, diskA * .85);
-    sprayFx(cx, cy, S * 1.5, diskA);
+    sprayFx(cx, cy, S * 1.5, diskA * P(st('b1') + .5, .4));
     drone(cx, cy, 1.6, 0, diskA);
   }
   // infinitos puntos y caminos libres
@@ -723,7 +725,6 @@ function sceneEnd() {
     const fa = new Path2D(); fa.ellipse(cx, Y0 + 760, 340, 90, 0, 0, 7);
     grass(fa, qa * .8, .45);
     sprayDisk(cx, Y0 + 760, 120, qa * .5);
-    sprayFx(cx, Y0 + 760, 150, qa * .8);
     drone(cx, cy, 3.4, Math.sin(T * .8) * .15, qa);
     const k = back(P(st('g2') + .6, .5));
     L.pink.save(); L.pink.translate(W / 2, Y0 + 1000); L.pink.rotate(-.06); L.pink.scale(k, k);
