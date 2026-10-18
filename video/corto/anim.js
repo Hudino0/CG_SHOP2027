@@ -381,7 +381,7 @@ function subtitles() {
   });
 }
 function stats(lines, alpha) {
-  lines.forEach(([s, ink], j) => txt(L[ink || 'blue'], s, W / 2, 1468 + j * 50, 38, { mono: true, alpha }));
+  lines.forEach(([s, ink], j) => txt(L[ink || 'blue'], s, W / 2, 1500 + j * 50, 38, { mono: true, alpha }));
 }
 
 // ---------- escenas ----------
