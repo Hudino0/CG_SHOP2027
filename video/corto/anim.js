@@ -752,8 +752,8 @@ function appScene(kind, x, y, tc, al) {
   if (dr) drone(dr[0], dr[1], dr[2], 0, al);
 }
 
-// pista de carreras: la ruta final, suavizada, con su auto
-const TRACK = (() => {
+// final: césped dibujado brizna por brizna y una podadora que recorre la ruta y lo corta
+const MOW_ROUTE = (() => {
   let pts = FINAL.slice(0, -1);
   for (let it = 0; it < 3; it++) {
     const q = [];
@@ -765,20 +765,35 @@ const TRACK = (() => {
   return { pts, A, len: A[A.length - 1] };
 })();
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
-function trackAt(s) { const l = TRACK.len; return pointAt(TRACK.pts, TRACK.A, ((s % l) + l) % l); }
-// auto clásico azul visto desde arriba, apuntando hacia +x (tinta propia: navy)
-function hornet(x, y, ang, s, al) {
-  const b = L.navy, yl = L.yellow, p = L.pink;
-  for (const c of [b, yl, p]) { c.save(); c.globalAlpha *= al; c.translate(x, y); c.rotate(ang); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; }
-  p.fillRect(-26, -19, 14, 6); p.fillRect(14, -19, 14, 6); p.fillRect(-26, 13, 14, 6); p.fillRect(14, 13, 14, 6);
-  b.beginPath(); b.roundRect(-36, -16, 72, 32, 12); b.fill();
-  const glass = new Path2D();
-  glass.moveTo(6, -12); glass.lineTo(16, -10); glass.lineTo(16, 10); glass.lineTo(6, 12); glass.closePath();
-  glass.moveTo(-20, -10); glass.lineTo(-14, -12); glass.lineTo(-14, 12); glass.lineTo(-20, 10); glass.closePath();
-  glass.moveTo(36, -9); glass.arc(32, -9, 4, 0, 7); glass.moveTo(36, 9); glass.arc(32, 9, 4, 0, 7);
-  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1; b.fill(glass); b.restore();
-  yl.fill(glass);
-  for (const c of [b, yl, p]) c.restore();
+const routeAt = s => pointAt(MOW_ROUTE.pts, MOW_ROUTE.A, clamp(s, 0, MOW_ROUTE.len));
+// cada brizna sabe en qué punto de la ruta la alcanza la podadora
+const BLADES = (() => {
+  const r = rng(77), out = [], smp = [];
+  for (let i = 0; i <= 900; i++) { const s = MOW_ROUTE.len * i / 900; const [x, y] = routeAt(s); smp.push([x, y, s]); }
+  for (const [cx, cy] of cells) for (let k = 0; k < 34; k++) {
+    const x = X0 + (cx + r()) * S, y = Y0 + (cy + r()) * S;
+    let cut = Infinity;
+    for (const [sx, sy, s] of smp) if (Math.hypot(sx - x, sy - y) < S / 2) { cut = s; break; }
+    out.push({ x, y, h: 22 + 20 * r(), lean: (r() - .5) * .9, ph: r() * 6.3, cut });
+  }
+  return out;
+})();
+// podadora de empuje vista desde arriba, avanzando hacia +x (tinta azul propia)
+function mower(x, y, ang, s, al) {
+  const b = L.navy, p = L.pink, yl = L.yellow;
+  for (const c of [b, p, yl]) { c.save(); c.globalAlpha *= al; c.translate(x, y); c.rotate(ang); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; c.lineCap = 'round'; }
+  // manubrio hacia atrás
+  b.lineWidth = 5; b.beginPath(); b.moveTo(-22, -16); b.lineTo(-62, -20); b.moveTo(-22, 16); b.lineTo(-62, 20); b.stroke();
+  b.lineWidth = 8; b.beginPath(); b.moveTo(-62, -24); b.lineTo(-62, 24); b.stroke();
+  // ruedas y cubierta
+  for (const [wx, wy] of [[-20, -26], [20, -26], [-20, 26], [20, 26]]) { b.beginPath(); b.roundRect(wx - 9, wy - 5, 18, 10, 4); b.fill(); }
+  b.beginPath(); b.roundRect(-30, -24, 60, 48, 14); b.fill();
+  // motor y tapa
+  const eng = new Path2D(); eng.arc(0, 0, 15, 0, 7);
+  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1; b.fill(eng); b.restore();
+  p.fill(eng); b.beginPath(); b.arc(0, 0, 5, 0, 7); b.fill();
+  yl.fillRect(24, -16, 6, 32);
+  for (const c of [b, p, yl]) c.restore();
 }
 function sceneEnd() {
   const a = life(SC.cierre.start - .1, TL.total + 1, .3, .3);
@@ -801,40 +816,39 @@ function sceneEnd() {
     txt(L.blue, l2, x, y + 165, 30, { mono: true, alpha: ca });
     for (const c of Object.values(L)) c.restore();
   });
-  // g2: de las tarjetas sale el campo, y la ruta se vuelve una pista de carreras
+  // g2: de las tarjetas sale el campo, ahora de césped, y la podadora lo corta siguiendo la ruta
   const ma = a * P(st('g2') + .5, .35);
   if (ma > 0) {
     const k = .62 * back(P(st('g2') + .5, .5)), cx = X0 + CAMPO.cols * S / 2, cy = Y0 + CAMPO.rows * S / 2;
     const toScreen = (lx, ly) => [TX + (lx - cx) * .62, TY + (ly - cy) * .62];
+    const t0 = st('g2') + 1.1, v = MOW_ROUTE.len / Math.max(4, TL.total - t0 - 1.2), tau = T - t0;
+    const s = tau <= 0 ? 0 : Math.min(MOW_ROUTE.len, v * (tau < .8 ? tau * tau / 1.6 : tau - .4));
     for (const c of Object.values(L)) { c.save(); c.translate(TX, TY); c.scale(k, k); c.translate(-cx, -cy); }
-    grass(fieldPath, ma, .5);
-    strokePts('pink', TRACK.pts, 74, ma, { dash: [22, 22] });
-    strokePts('blue', TRACK.pts, 64, ma);
-    const pk = L.pink; pk.save(); pk.globalCompositeOperation = 'destination-out'; pk.lineWidth = 64; pk.lineJoin = 'round'; poly(pk, TRACK.pts); pk.stroke(); pk.restore();
-    const bl = L.blue; bl.save(); bl.globalCompositeOperation = 'destination-out'; bl.lineWidth = 54; bl.lineJoin = 'round'; poly(bl, TRACK.pts); bl.stroke(); bl.restore();
-    strokePts('yellow', TRACK.pts, 54, ma);
-    // línea de meta a cuadros
-    const [mx, my, mang] = trackAt(0);
-    for (const c of [L.blue, L.yellow]) { c.save(); c.translate(mx, my); c.rotate(mang); }
-    L.blue.save(); L.blue.globalCompositeOperation = 'destination-out'; L.blue.fillRect(-8, -27, 16, 54); L.blue.restore();
-    for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2) { L.blue.globalAlpha = ma; L.blue.fillStyle = '#000'; L.blue.fillRect(-8 + j * 8, -27 + i * 9, 8, 9); }
-    for (const c of [L.blue, L.yellow]) c.restore();
-    strokePts('blue', TRACK.pts, 3, ma * .7, { dash: [18, 22] });
+    // tierra y franjas ya cortadas
+    grass(fieldPath, ma, .2);
+    if (s > 0) { const gg = L.green; gg.save(); gg.globalAlpha = ma; gg.clip(fieldPath); gg.lineWidth = S; gg.lineCap = gg.lineJoin = 'round'; gg.strokeStyle = halftone(gg, .7, 45, 9); poly(gg, partial(MOW_ROUTE.pts, MOW_ROUTE.A, s)); gg.stroke(); gg.restore(); }
+    // briznas: altas y meciéndose, o cortitas donde ya pasó la podadora
+    const g = L.green; g.save(); g.globalAlpha = ma; g.strokeStyle = '#000'; g.lineCap = 'round'; g.lineWidth = 4;
+    const tall = new Path2D();
+    for (const bd of BLADES) {
+      const sw = Math.sin(T * 2.2 + bd.ph + bd.x * .01) * 4;
+      if (bd.cut > s) { tall.moveTo(bd.x, bd.y); tall.quadraticCurveTo(bd.x + bd.lean * 8, bd.y - bd.h * .6, bd.x + bd.lean * 14 + sw, bd.y - bd.h); }
+    }
+    g.stroke(tall); g.restore();
     for (const c of Object.values(L)) c.restore();
-    // el auto: acelera y da vueltas; en las curvas la cola se abre y deja humo
-    const t0 = st('g2') + 1, tau = T - t0;
     if (tau > 0 && k >= .55) {
-      const v = TRACK.len / 4.2, s = v * (tau < 1 ? tau * tau / 2 : tau - .5);
-      const head = d => trackAt(s + d)[2];
-      for (let j = 16; j >= 1; j--) {
-        const sj = s - j * 28, cj = Math.abs(angDiff(trackAt(sj + 50)[2], trackAt(sj - 50)[2]));
-        if (cj < .45 || sj < 0) continue;
-        const [lx, ly] = trackAt(sj), [px, py] = toScreen(lx, ly), r = 5 + j * 1.6, al = ma * (1 - j / 17) * Math.min(1, cj);
-        const pk = L.pink; pk.save(); pk.globalAlpha = al * .55; pk.fillStyle = '#000'; pk.beginPath(); pk.arc(px, py, r, 0, 7); pk.fill(); pk.restore();
+      // recortes que salen volando a un lado de la podadora
+      const head = d => routeAt(s + d)[2];
+      const [lx, ly] = routeAt(s), [px, py] = toScreen(lx, ly), h0 = head(30);
+      const g2 = L.green; g2.save(); g2.globalAlpha = ma; g2.fillStyle = '#000';
+      for (let i = 0; i < 14; i++) {
+        const f = (T * 2.4 + i / 14) % 1, side = h0 + Math.PI / 2 + (i % 3 - 1) * .4;
+        const d = 26 + 40 * f;
+        g2.globalAlpha = ma * (1 - f); g2.beginPath(); g2.arc(px + Math.cos(side) * d - Math.cos(h0) * 10 * f, py + Math.sin(side) * d - Math.sin(h0) * 10 * f, 3, 0, 7); g2.fill();
       }
-      const [lx, ly] = trackAt(s), [px, py] = toScreen(lx, ly);
-      const drift = Math.max(-.9, Math.min(.9, angDiff(head(70), head(-70)) * 1.1));
-      hornet(px, py, head(0) + drift, 1.05, ma * P(t0, .3));
+      g2.restore();
+      const turn = Math.max(-.35, Math.min(.35, angDiff(head(50), head(-50)) * .5));
+      mower(px, py, head(10) + turn, .85, ma * P(t0, .3));
     }
   }
   // g3: resumen y créditos
@@ -894,7 +908,7 @@ function sfxCues() {
   for (let i = 0; i < Math.ceil(lengthOf(CH[0]) / BATT); i++) c.push([t2 + .5 + i * .35, 'pop', .45]);
   c.push([t2 + 2.6, 'boom', .6]);
   ['fumigar', 'inspeccionar', 'buscar', 'robots'].forEach(w => c.push([wordT('g1', w) - .2, 'pop', .55]));
-  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6], [st('g2') + 1, 'hum:' + (TL.total - st('g2') - 1).toFixed(2), .35]);
+  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6], [st('g2') + 1.1, 'hum:' + (TL.total - st('g2') - 1.1).toFixed(2), .4]);
   ['Simplificar', 'Decidir', 'Cubrir'].forEach(w => c.push([wordT('g3', w) - .15, 'click', .6]));
   c.push([en('g3') + .2, 'success', .5]);
   return c.filter(x => x[0] >= 0).map(([t, n, v]) => ({ t: +t.toFixed(3), name: n, vol: v }));
