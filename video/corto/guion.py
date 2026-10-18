@@ -47,7 +47,7 @@ PAUSA_FRASE = 0.25
 PAUSA_ESCENA = 0.4
 # segundos extra después de ciertas frases, para que se vea la animación
 EXTRA = {"a2": 0.3, "c2": 0.6, "c3": 0.5, "d2": 0.5, "e2": 0.4, "e3": 1.6, "e4": 0.6,
-         "f2": 0.6, "f3": 0.8, "g3": 1.6}
+         "f2": 0.6, "f3": 0.8, "g1": 1.8, "g3": 1.6}
 # segundos antes de la primera frase y al final (créditos)
 INICIO = 0.6
 FINAL = 2.5
