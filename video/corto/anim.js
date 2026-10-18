@@ -13,9 +13,11 @@ const PALETAS = {
   // colores de la paleta del rosa mexicano: complementario, monocromático y análogos
   malaquita: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e468', pink: '#e4007c', blue: '#4b0029' },
   turquesa: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e4da', pink: '#e4007c', blue: '#6800e4' },
+  // esquema complementario de colorxs.com: verde pasto 009845, rosa FF7EC4, vino 4B0029
+  complementaria: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#009845', pink: '#e4007c', blue: '#4b0029' },
   mixta: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#00e4da', pink: '#e4007c', blue: '#4b0029' },
 };
-const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'malaquita'];
+const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'complementaria'];
 const ORDER = ['yellow', 'green', 'pink', 'blue'];
 const MIS = { yellow: [-3, 2], green: [2, 3], pink: [4, -2], blue: [-1, -1] };
 const DISPLAY = '800 {s}px Bricolage, sans-serif';
