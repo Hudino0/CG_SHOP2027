@@ -9,17 +9,17 @@ const W = 1080, H = 1920;
 // cada capa tiene un papel fijo: yellow = claro (rociado, marcador), green = campo,
 // pink = acento (#e4007c), blue = tinta de texto y líneas. La paleta sólo cambia los colores.
 const PALETAS = {
-  riso: { paper: '#f3ecdc', yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4' },
+  riso: { paper: '#f3ecdc', yellow: '#ffe800', green: '#00a95c', pink: '#e4007c', blue: '#3255a4', navy: '#000ae4' },
   // colores de la paleta del rosa mexicano: complementario, monocromático y análogos
-  malaquita: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e468', pink: '#e4007c', blue: '#4b0029' },
-  turquesa: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e4da', pink: '#e4007c', blue: '#6800e4' },
+  malaquita: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e468', pink: '#e4007c', blue: '#4b0029', navy: '#000ae4' },
+  turquesa: { paper: '#f3ecdc', yellow: '#ffb1db', green: '#00e4da', pink: '#e4007c', blue: '#6800e4', navy: '#000ae4' },
   // esquema complementario de colorxs.com: verde pasto 009845, rosa FF7EC4, vino 4B0029
-  complementaria: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#009845', pink: '#e4007c', blue: '#4b0029' },
-  mixta: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#00e4da', pink: '#e4007c', blue: '#4b0029' },
+  complementaria: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#009845', pink: '#e4007c', blue: '#4b0029', navy: '#000ae4' },
+  mixta: { paper: '#f3ecdc', yellow: '#ff7ec4', green: '#00e4da', pink: '#e4007c', blue: '#4b0029', navy: '#000ae4' },
 };
 const INK = PALETAS[new URLSearchParams(location.search).get('pal') || window.PALETA || 'complementaria'];
-const ORDER = ['yellow', 'green', 'pink', 'blue'];
-const MIS = { yellow: [-3, 2], green: [2, 3], pink: [4, -2], blue: [-1, -1] };
+const ORDER = ['yellow', 'green', 'pink', 'navy', 'blue'];
+const MIS = { yellow: [-3, 2], green: [2, 3], pink: [4, -2], blue: [-1, -1] , navy: [2, -1] };
 const DISPLAY = '800 {s}px Bricolage, sans-serif';
 const MONO = '700 {s}px "Space Mono", "DejaVu Sans Mono", monospace';
 const font = (f, s) => f.replace('{s}', s);
@@ -766,9 +766,9 @@ const TRACK = (() => {
 })();
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 function trackAt(s) { const l = TRACK.len; return pointAt(TRACK.pts, TRACK.A, ((s % l) + l) % l); }
-// auto clásico visto desde arriba, apuntando hacia +x
+// auto clásico azul visto desde arriba, apuntando hacia +x (tinta propia: navy)
 function hornet(x, y, ang, s, al) {
-  const b = L.blue, yl = L.yellow, p = L.pink;
+  const b = L.navy, yl = L.yellow, p = L.pink;
   for (const c of [b, yl, p]) { c.save(); c.globalAlpha *= al; c.translate(x, y); c.rotate(ang); c.scale(s, s); c.fillStyle = c.strokeStyle = '#000'; }
   p.fillRect(-26, -19, 14, 6); p.fillRect(14, -19, 14, 6); p.fillRect(-26, 13, 14, 6); p.fillRect(14, 13, 14, 6);
   b.beginPath(); b.roundRect(-36, -16, 72, 32, 12); b.fill();
@@ -776,10 +776,8 @@ function hornet(x, y, ang, s, al) {
   glass.moveTo(6, -12); glass.lineTo(16, -10); glass.lineTo(16, 10); glass.lineTo(6, 12); glass.closePath();
   glass.moveTo(-20, -10); glass.lineTo(-14, -12); glass.lineTo(-14, 12); glass.lineTo(-20, 10); glass.closePath();
   glass.moveTo(36, -9); glass.arc(32, -9, 4, 0, 7); glass.moveTo(36, 9); glass.arc(32, 9, 4, 0, 7);
-  const badge = new Path2D(); badge.arc(-4, 0, 9, 0, 7);
-  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1; b.fill(glass); b.fill(badge); b.restore();
+  b.save(); b.globalCompositeOperation = 'destination-out'; b.globalAlpha = 1; b.fill(glass); b.restore();
   yl.fill(glass);
-  b.save(); b.rotate(Math.PI / 2); b.font = font(DISPLAY, 11); b.textAlign = 'center'; b.textBaseline = 'middle'; b.fillText('51', 0, 4); b.restore();
   for (const c of [b, yl, p]) c.restore();
 }
 function sceneEnd() {
