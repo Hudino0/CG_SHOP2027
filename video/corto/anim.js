@@ -857,7 +857,7 @@ function sceneEnd() {
     const items = [['Simplificar', 'el terreno → grafo', 'Simplificar'], ['Decidir', 'cada giro → piezas', 'Decidir'], ['Cubrir todo', 'con el camino más corto', 'Cubrir']];
     items.forEach(([h, s2, w], i) => {
       const k = eout(P(wordT('g3', w) - .15, .45)); if (k <= 0) return;
-      const y = Y0 + 700 + i * 130, x = 160 + (1 - k) * 60;
+      const y = Y0 + 690 + i * 120, x = 160 + (1 - k) * 60;
       const yl = L.yellow; yl.save(); yl.globalAlpha = ra * k; yl.fillStyle = '#000'; yl.beginPath(); yl.arc(x + 40, y - 18, 42, 0, 7); yl.fill(); yl.restore();
       const p = L.pink; p.save(); p.globalAlpha = ra * k; p.lineWidth = 6; p.strokeStyle = '#000'; p.beginPath(); p.arc(x + 40, y - 18, 42, 0, 7); p.stroke(); p.restore();
       txt(L.blue, String(i + 1), x + 40, y, 54, { alpha: ra * k });
@@ -867,10 +867,11 @@ function sceneEnd() {
     const cr = ra * P(en('g3') + .2, .6);
     if (cr > 0) {
       const lines = ['Basado en: S. P. Fekete, D. Krupke, M. Perk,', 'C. Rieck y C. Scheffer (2023).', 'The Lawn Mowing Problem:', 'From Algebra to Algorithms. ESA 2023.'];
-      lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1070 + i * 34, 25, { mono: true, alpha: cr }));
+      ['Edgar González Arreola', 'Humberto Anaya Ortiz'].forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1062 + i * 44, 38, { alpha: cr }));
+      lines.forEach((s, i) => txt(L.blue, s, W / 2, Y0 + 1150 + i * 30, 23, { mono: true, alpha: cr }));
       // leyenda que pide la convocatoria
       const ia = ['Para la elaboración de este video se utilizaron', 'elementos generados mediante inteligencia', 'artificial (IA), que representan menos del 20%', 'del contenido total.'];
-      ia.forEach((s, i) => txt(L.pink, s, W / 2, Y0 + 1250 + i * 32, 24, { mono: true, alpha: cr }));
+      ia.forEach((s, i) => txt(L.pink, s, W / 2, Y0 + 1288 + i * 28, 22, { mono: true, alpha: cr }));
     }
   }
 }
