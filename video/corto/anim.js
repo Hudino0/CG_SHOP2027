@@ -894,7 +894,6 @@ function render(t) {
 function sfxCues() {
   const c = [];
   for (const [n, s] of Object.entries(SC)) if (n !== 'gancho') c.push([s.start - .2, 'whoosh', .5]);
-  c.push([st('a1') - .2, 'hum:' + (en('a2') - st('a1') + 1).toFixed(2), .35]);
   c.push([wordT('b2', 'infinitos'), 'tick', .4], [wordT('b2', 'infinitos') + .4, 'tick', .4], [wordT('b2', 'infinitos') + .8, 'tick', .4]);
   for (let i = 0; i < 8; i++) c.push([st('c1') + .6 + i * .12, 'click', .5]);
   c.push([st('c2') + .2, 'pop', .6], [st('c2') + 1.2, 'pop', .5]);
@@ -902,7 +901,7 @@ function sfxCues() {
   ['recto', 'giro', 'vuelta'].forEach((w, i) => c.push([Math.min(wordT('d2', w) - .15, st('d2') + .5 + i * .45), 'pop', .6]));
   c.push([st('d3') + 1.3, 'ding', .45]);
   const t1 = st('e1') + .3, fly = Math.max(2.4, en('e1') - t1 - .2);
-  c.push([t1, 'hum:' + fly.toFixed(2), .3], [t1 + fly - .2, 'error', .45], [st('e2') + 1.4, 'success', .5]);
+  c.push([t1 + fly - .2, 'error', .45], [st('e2') + 1.4, 'success', .5]);
   const steps = CH.length - 1, t3 = st('e3') + .2, D = (st('e4') - .2 - t3) / steps;
   for (let i = 1; i <= steps; i++) c.push([t3 + (i - 1) * D + .45 * D, 'tick', .6]);
   c.push([st('e4'), 'ding', .5]);
@@ -912,7 +911,7 @@ function sfxCues() {
   for (let i = 0; i < Math.ceil(lengthOf(CH[0]) / BATT); i++) c.push([t2 + .5 + i * .35, 'pop', .45]);
   c.push([t2 + 2.6, 'boom', .6]);
   ['fumigar', 'inspeccionar', 'buscar', 'robots'].forEach(w => c.push([wordT('g1', w) - .2, 'pop', .55]));
-  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6], [st('g2') + 1.1, 'hum:' + (TL.total - st('g2') - 1.1).toFixed(2), .4]);
+  c.push([st('g2'), 'whoosh', .4], [st('g2') + .5, 'pop', .6], [st('g2') + 1.1, 'hum:' + (TL.total - st('g2') - 1.1).toFixed(2), .2]);
   ['Simplificar', 'Decidir', 'Cubrir'].forEach(w => c.push([wordT('g3', w) - .15, 'click', .6]));
   c.push([en('g3') + .2, 'success', .5]);
   return c.filter(x => x[0] >= 0).map(([t, n, v]) => ({ t: +t.toFixed(3), name: n, vol: v }));
