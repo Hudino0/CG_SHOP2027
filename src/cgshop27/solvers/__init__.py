@@ -2,6 +2,7 @@
 
 from .boustrophedon import solve as boustrophedon
 from .fekete import solve as _fekete
+from .lanes import solve as _lanes
 from .scale import scaled
 
 # The compiled block search holds a block in one 64-bit mask, so a block is at
@@ -9,6 +10,9 @@ from .scale import scaled
 # (exact) and coarsens further only when the cutter is still wider than that.
 fekete = scaled(_fekete, max_width=7)
 
-SOLVERS = {"boustrophedon": boustrophedon, "fekete": fekete}
+# Lanes have no blocks: the instance's own lattice is enough, at any width.
+lanes = scaled(_lanes)
 
-__all__ = ["SOLVERS", "boustrophedon", "fekete", "scaled"]
+SOLVERS = {"boustrophedon": boustrophedon, "fekete": fekete, "lanes": lanes}
+
+__all__ = ["SOLVERS", "boustrophedon", "fekete", "lanes", "scaled"]

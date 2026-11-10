@@ -147,6 +147,38 @@ def area_lower_bound(area: int, cutter_area: int, cross: int, k: int) -> int:
     return max(0, -(-(area - k * cutter_area) // (k * cross)))
 
 
+def orthoconvex_hull(cutter: CellSet) -> CellSet:
+    """The smallest superset of the cutter whose rows and columns are intervals."""
+    mask = cutter.mask.astype(bool).copy()
+    while True:
+        before = int(mask.sum())
+        for axis in (0, 1):
+            # Fill every line between its first and its last cell.
+            first = np.maximum.accumulate(mask, axis=axis)
+            last = np.flip(np.maximum.accumulate(np.flip(mask, axis=axis), axis=axis), axis=axis)
+            mask = first & last
+        if int(mask.sum()) == before:
+            return CellSet(mask, cutter.origin)
+
+
+def lower_bound(area: int, cutter: CellSet, k: int) -> int:
+    """The best proven lower bound on the longest tour. See `docs/algoritmo.md`.
+
+    1. *Area bound.* A step sweeps at most `cross(C)` new cells.
+    2. *Monotonicity.* A solution for the cutter `C` is a solution for every
+       cutter `C' ⊇ C`, so a bound for `C'` is a bound for `C`. The area bound
+       of the orthoconvex hull is much stronger for cutters with notches: the
+       hull has one run per row, the notched cutter has up to two.
+    3. *Parity.* A closed walk on the lattice has even length.
+    """
+    hull = orthoconvex_hull(cutter)
+    bound = max(
+        area_lower_bound(area, len(cutter), max_cross_section(cutter), k),
+        area_lower_bound(area, len(hull), max_cross_section(hull), k),
+    )
+    return bound + bound % 2
+
+
 # -- the catalog record ----------------------------------------------------
 
 
@@ -213,5 +245,5 @@ def describe(path: Path, instance: CGSHOP2027Instance | None = None) -> Instance
         cutter_center=tuple(instance.cutter_center),
         cutter_cross_section=cross,
         area_over_cutter=round(area / cutter_area, 2) if cutter_area else 0.0,
-        lower_bound=area_lower_bound(area, cutter_area, cross, k),
+        lower_bound=lower_bound(area, cutter, k),
     )

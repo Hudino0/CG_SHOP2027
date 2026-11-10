@@ -76,6 +76,15 @@ def _stamp(cnt, reg, x, y, ox, oy, sign):
 
 
 @njit(cache=True)
+def _stamp_all(cnt, P, ox, oy):
+    """Add the sweep of every point of a walk to the counter."""
+    for i in range(P.shape[0]):
+        x, y = P[i, 0], P[i, 1]
+        for k in range(ox.shape[0]):
+            cnt[y + oy[k], x + ox[k]] += 1
+
+
+@njit(cache=True)
 def _lwalk(ax, ay, bx, by, vertical_first, out, start):
     """Write the points strictly between a and b of an L walk; return count."""
     m = start
@@ -396,14 +405,19 @@ class Refiner:
             chi[dx - cx0] = max(chi[dx - cx0], dy)
         # Rows and columns must be intervals for the segment test to be exact.
         cells = set(offsets)
-        self.convex = all((dx, dy) in cells for dx in range(int(rlo[dy - cy0]), int(rhi[dy - cy0]) + 1)
-                          for dy in range(cy0, cy0 + rows)) and             all((dx, dy) in cells for dy in range(int(clo[dx - cx0]), int(chi[dx - cx0]) + 1)
-                for dx in range(cx0, cx0 + cols))
+        self.convex = all(
+            (dx, dy) in cells
+            for dy in range(cy0, cy0 + rows)
+            for dx in range(int(rlo[dy - cy0]), int(rhi[dy - cy0]) + 1)
+        ) and all(
+            (dx, dy) in cells
+            for dx in range(cx0, cx0 + cols)
+            for dy in range(int(clo[dx - cx0]), int(chi[dx - cx0]) + 1)
+        )
         self.spans = (rlo, rhi, clo, chi, cy0, cx0)
         self.tours = [expand([(x - x0, y - y0) for x, y in p]) for p in paths]
         for P in self.tours:
-            for x, y in P:
-                self.cnt[y + oy, x + ox] += 1
+            _stamp_all(self.cnt, P, ox, oy)
 
     def lengths(self) -> list[int]:
         return [len(P) if len(P) > 1 else 0 for P in self.tours]

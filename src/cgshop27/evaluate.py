@@ -17,7 +17,7 @@ from cgshop2027_pyutils.schemas import CGSHOP2027Instance, CGSHOP2027Solution
 from cgshop2027_pyutils.verify import SolutionValidator
 from cgshop2027_pyutils.zip.zip_writer import ZipWriter
 
-from .catalog import area_lower_bound, cutter_cells, load, max_cross_section, region_cells
+from .catalog import cutter_cells, load, lower_bound, region_cells
 from .config import SOLUTION_SUFFIX, SOLUTIONS
 
 
@@ -96,12 +96,7 @@ def verify(
     validator = validator or SolutionValidator(instance)
     errors = validator.check_for_errors(solution)
     region, cutter = region_cells(instance), cutter_cells(instance)
-    bound = area_lower_bound(
-        len(region),
-        len(cutter),
-        max_cross_section(cutter),
-        instance.number_of_cutters,
-    )
+    bound = lower_bound(len(region), cutter, instance.number_of_cutters)
     return Verdict(
         run=run,
         instance_uid=solution.instance_uid,

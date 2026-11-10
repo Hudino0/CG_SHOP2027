@@ -493,6 +493,63 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     return 0 if all(r.feasible for r in results) else 1
 
 
+def _polish_worker(job: tuple[str, str, str, float, int]) -> tuple[str, int, int, str]:
+    """Refine one stored solution on the instance's own lattice."""
+    import random
+    import time
+
+    from cgshop2027_pyutils.io import read_solution
+    from cgshop2027_pyutils.schemas import CGSHOP2027Solution
+    from cgshop2027_pyutils.verify import check_for_errors
+
+    from .solvers._tour import make_tour
+    from .solvers.refine import Refiner
+
+    instance_path, solution_path, into, seconds, seed = job
+    instance = catalog.load(Path(instance_path))
+    solution = read_solution(Path(solution_path))
+    before = solution.max_tour_length
+    region, cutter = catalog.region_cells(instance), catalog.cutter_cells(instance)
+    moving = [i for i, tour in enumerate(solution.tours) if tour.length > 0]
+    paths = [list(zip(solution.tours[i].x, solution.tours[i].y)) for i in moving]
+    if not paths:
+        return instance.instance_uid, before, before, ""
+    refiner = Refiner(region.mask, region.origin, list(cutter.cells()), paths)
+    refiner.run(time.perf_counter() + seconds, random.Random(seed))
+    tours = list(solution.tours)
+    for i, path in zip(moving, refiner.paths()):
+        tours[i] = make_tour(path)
+    meta = {**solution.meta, "polished_from": before}
+    candidate = CGSHOP2027Solution(instance_uid=solution.instance_uid, tours=tours, meta=meta)
+    errors = check_for_errors(instance, candidate)
+    if errors:
+        return instance.instance_uid, before, before, errors[0]
+    evaluate.keep_best(candidate, into)
+    return instance.instance_uid, before, candidate.max_tour_length, ""
+
+
+def cmd_polish(args: argparse.Namespace) -> int:
+    """Shorten the tours of a run with the lattice refiner; keep only gains."""
+    paths = _select(catalog.instance_paths(args.instances), args.filter, args.limit)
+    index = _instance_index(paths)
+    into = args.into or args.run
+    jobs = []
+    for solution_path in evaluate.run_solutions(args.run):
+        uid = solution_path.name.removesuffix(config.SOLUTION_SUFFIX)
+        if uid in index:
+            jobs.append((str(index[uid]), str(solution_path), into, args.time_limit, args.seed))
+    results = _map(_polish_worker, jobs, args.jobs, f"polishing {args.run}")
+    gains = sorted(1 - after / before for _, before, after, _ in results if before)
+    for uid, _, _, error in results:
+        if error:
+            print(f"  REJECTED {uid}: {error}")
+    if gains:
+        better = sum(1 for g in gains if g > 0)
+        print(f"run {into!r}: {better}/{len(gains)} shorter, gain median "
+              f"{100 * gains[len(gains) // 2]:.2f} % / max {100 * gains[-1]:.2f} %")
+    return 0
+
+
 def cmd_best(args: argparse.Namespace) -> int:
     """Merge runs into one run that keeps the best verified solution of each instance."""
     from cgshop2027_pyutils.io import read_solution
@@ -668,6 +725,17 @@ def build_parser() -> argparse.ArgumentParser:
                       help="seconds per instance, for the solvers that take it")
     pipe.add_argument("--open", action="store_true", help="open the report")
     pipe.set_defaults(func=cmd_pipeline)
+
+    polish = subparsers.add_parser(
+        "polish", help="shorten a run's tours with the lattice refiner; keep only gains"
+    )
+    common(polish)
+    polish.add_argument("--run", default="best", help="run to read")
+    polish.add_argument("--into", default=None, help="run to write (default: the same run)")
+    polish.add_argument("--time-limit", type=float, default=20.0,
+                        help="seconds per instance (default: 20)")
+    polish.add_argument("--seed", type=int, default=0)
+    polish.set_defaults(func=cmd_polish)
 
     best = subparsers.add_parser(
         "best", help="merge runs, keeping the best verified solution of each instance"
