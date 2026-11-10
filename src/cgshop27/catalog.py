@@ -18,7 +18,7 @@ from cgshop2027_pyutils.grid import CellSet, rasterize, rasterize_ring
 from cgshop2027_pyutils.io import read_instance
 from cgshop2027_pyutils.schemas import CGSHOP2027Instance
 
-from .config import INSTANCE_SUFFIX, INSTANCES
+from .config import INSTANCE_SUFFIX, INSTANCES, SUITES
 
 _FAMILY = re.compile(r"^[a-zA-Z]+")
 
@@ -27,6 +27,11 @@ def instance_paths(root: Path | None = None) -> list[Path]:
     """Every `*.instance.json` under `root`, sorted by name."""
     root = INSTANCES if root is None else root
     return sorted(root.rglob(f"*{INSTANCE_SUFFIX}"))
+
+
+def suite_of(path: Path) -> str:
+    """`test` or `competition`, from the directory that holds the instance."""
+    return next((p for p in reversed(path.parts[:-1]) if p in SUITES), "other")
 
 
 def load(path: Path) -> CGSHOP2027Instance:
@@ -86,13 +91,19 @@ def count_components(cells: CellSet) -> int:
 
 
 def max_cross_section(cutter: CellSet) -> int:
-    """The widest row or column of the cutter.
+    """The most new cells that one unit of travel can sweep.
 
-    One unit of travel sweeps at most this many new cells, which is what makes
-    the area lower bound below valid.
+    A step of +1 in x sweeps the cells `x+1` with `x` in the cutter and `x+1`
+    outside it. That is the number of horizontal runs of the cutter. The same
+    holds for y. For a convex cutter this equals the widest row or column. A
+    cutter with notches has more runs than its widest row, and the widest row
+    would make the area lower bound below invalid.
     """
-    mask = cutter.mask
-    return int(max(mask.sum(axis=0).max(), mask.sum(axis=1).max()))
+    mask = cutter.mask.astype(bool)
+    pad = np.pad(mask, 1)
+    h_runs = int((pad[:, 1:] & ~pad[:, :-1]).sum())
+    v_runs = int((pad[1:, :] & ~pad[:-1, :]).sum())
+    return max(h_runs, v_runs)
 
 
 def area_lower_bound(area: int, cutter_area: int, cross: int, k: int) -> int:
@@ -112,6 +123,7 @@ def area_lower_bound(area: int, cutter_area: int, cross: int, k: int) -> int:
 @dataclass(frozen=True)
 class InstanceStats:
     instance_uid: str
+    suite: str
     family: str
     path: str
     number_of_cutters: int
@@ -152,6 +164,7 @@ def describe(path: Path, instance: CGSHOP2027Instance | None = None) -> Instance
 
     return InstanceStats(
         instance_uid=instance.instance_uid,
+        suite=suite_of(path),
         family=(_FAMILY.match(instance.instance_uid) or _FAMILY.match("x")).group(0),
         path=str(path),
         number_of_cutters=k,

@@ -38,8 +38,11 @@ works everywhere in the project.
 cg27 fetch
 ```
 
-This writes 75 example instances into `data/instances/`. The repository does
-not carry them, so this step is necessary after each new clone.
+The repository already carries the instances, so this step is optional. It
+refreshes them from the organizers: 75 test instances into `instances/test/`
+(they do not score) and 250 official contest instances (v0, 14 October 2026)
+into `instances/competition/`. Use `--suite test` or `--suite competition` for
+one set. The gallery shows a badge and a filter that tell the two sets apart.
 
 **Step 3. Solve one instance and watch the solution.**
 
@@ -85,7 +88,7 @@ These times come from a clean clone on Windows, with 8 workers:
 | `cg27 gallery` | 6 s |
 | `cg27 animate` (one instance, 80 frames) | 21 s |
 
-The full set uses 2.4 MB in `data/` and 17 MB in `out/`.
+The 75 test instances use 2.4 MB. The 250 competition instances use 8.9 MB.
 
 ### Which viewer to use
 
@@ -176,13 +179,15 @@ You can test any idea against this model directly.
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
 | `src/cgshop27/gridgraph.py` | Draws the block grid graph of the `fekete` solver. |
 | `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
+| `docs/PROMPT_FABLE.md` | The prompt for a long, rigorous solver session. |
+| `docs/revision_sistematica_literatura.pdf` | The literature review. It assumes a 1x1 cutter; the real cutters differ. |
 | `src/cgshop27/cli.py` | The `cg27` command and its 11 sub-commands. |
 
-The pipeline writes into these directories. Git ignores all of them.
+The pipeline writes into these directories. Git ignores them, except `instances/`.
 
 | Directory | Content |
 |---|---|
-| `data/instances/` | The instance files. Command `cg27 fetch` gets them. |
+| `instances/test/`, `instances/competition/` | The instance files. They are in git. |
 | `data/solutions/<run>/` | The solution files. One directory for each run. |
 | `out/catalog.csv` | One line for each instance, with all size numbers. |
 | `out/verdicts.json` | Result, objective and gap for each solution. |

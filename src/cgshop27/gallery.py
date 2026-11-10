@@ -61,6 +61,11 @@ _TEMPLATE = """<!doctype html>
   th { position:sticky; top:0; background:var(--bg); cursor:pointer;
        user-select:none; }
   th:hover { color:var(--accent); }
+  .badge { font:600 10px ui-monospace,monospace; padding:1px 6px; border-radius:99px;
+           margin-left:6px; vertical-align:middle; letter-spacing:.04em; }
+  .badge.competition { background:#f5a524; color:#1a1200; }
+  .badge.test { background:#3b4252; color:#cbd5e1; }
+  .card.competition { border-left:3px solid #f5a524; }
   .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
   .hide { display:none; }
   dialog { border:none; border-radius:10px; padding:0; max-width:95vw;
@@ -75,6 +80,7 @@ _TEMPLATE = """<!doctype html>
 
 <div class="bar">
   <input type="search" id="q" placeholder="filter by uid or family&hellip;">
+  <select id="suite"></select>
   <select id="family"></select>
   <select id="cutters"></select>
   <select id="sort"></select>
@@ -94,6 +100,7 @@ const ROWS = __ROWS__;
 const RUNS = __RUNS__;          // {run: {uid: {objective, feasible, gap}}}
 const IMAGES = __IMAGES__;      // {source: {uid: relative path}}
 
+const SUITE_LABEL = {competition: "competition", test: "test"};
 const NUMERIC = ["number_of_cutters","region_area","region_components",
   "region_width","region_height","bbox_fill","outer_vertices","holes",
   "hole_vertices","cutter_area","cutter_width","cutter_height",
@@ -107,7 +114,7 @@ for (const row of ROWS)
   }
 
 const runCols = Object.keys(RUNS).flatMap(r => ["obj:" + r, "gap:" + r]);
-const COLUMNS = ["instance_uid", "family", ...NUMERIC, ...runCols];
+const COLUMNS = ["instance_uid", "suite", "family", ...NUMERIC, ...runCols];
 
 const $ = id => document.getElementById(id);
 const fill = (el, opts, label) => {
@@ -115,6 +122,8 @@ const fill = (el, opts, label) => {
     '<option value="' + o[0] + '">' + label + o[1] + '</option>').join("");
 };
 
+fill($("suite"), [["", "all instances"],
+  ...[...new Set(ROWS.map(r => r.suite))].sort().map(f => [f, f + " only"])], "");
 fill($("family"), [["", "all families"],
   ...[...new Set(ROWS.map(r => r.family))].sort().map(f => [f, f])], "");
 fill($("cutters"), [["", "any k"],
@@ -135,10 +144,12 @@ const fmt = v => v === null || v === undefined ? "&mdash;"
 
 function selected() {
   const q = $("q").value.trim().toLowerCase();
+  const suite = $("suite").value;
   const family = $("family").value, k = $("cutters").value;
   const key = $("sort").value;
   const rows = ROWS.filter(r =>
     (!q || r.instance_uid.toLowerCase().includes(q)) &&
+    (!suite || r.suite === suite) &&
     (!family || r.family === family) &&
     (!k || String(r.number_of_cutters) === k));
   rows.sort((a, b) => {
@@ -156,6 +167,8 @@ function summary(rows) {
   const sum = f => rows.reduce((t, r) => t + f(r), 0);
   const cards = [
     ["instances", rows.length],
+    ["competition", rows.filter(r => r.suite === "competition").length],
+    ["test", rows.filter(r => r.suite === "test").length],
     ["median area", median(rows.map(r => r.region_area))],
     ["max area", Math.max(0, ...rows.map(r => r.region_area))],
     ["cutters k", [...new Set(rows.map(r => r.number_of_cutters))]
@@ -183,8 +196,9 @@ function drawGrid(rows) {
     const image = src
       ? '<img loading="lazy" src="' + src + '" alt="' + r.instance_uid + '">'
       : "";
-    return '<div class="card">' + image +
-      '<div class="body"><div class="uid">' + r.instance_uid + '</div>' +
+    return '<div class="card ' + r.suite + '">' + image +
+      '<div class="body"><div class="uid">' + r.instance_uid +
+      '<span class="badge ' + r.suite + '">' + r.suite + '</span></div>' +
       '<div class="kv">' +
         '<span>k <b>' + r.number_of_cutters + '</b></span>' +
         '<span>area <b>' + fmt(r.region_area) + '</b></span>' +
@@ -221,7 +235,7 @@ function draw() {
   if (table) drawTable(rows); else drawGrid(rows);
 }
 
-for (const id of ["q", "family", "cutters", "sort", "view", "pic"])
+for (const id of ["q", "suite", "family", "cutters", "sort", "view", "pic"])
   $(id).addEventListener("input", draw);
 
 $("grid").addEventListener("click", event => {
