@@ -510,17 +510,78 @@ def _neighbours(ex: np.ndarray, ey: np.ndarray, members: np.ndarray, count: int 
     return near
 
 
-def _improve(order, flip, ex, ey, deadline: float) -> None:
-    """2-opt and Or-opt until neither helps or the time is over."""
+@njit(cache=True)
+def _seed(value):
+    np.random.seed(value)
+
+
+@njit(cache=True)
+def _kicks(order, flip, n, ex, ey, near, rounds):
+    """Iterated local search: double-bridge kick, 2-opt and Or-opt, keep if not worse.
+
+    The kick cuts the tour at three places close together and swaps the two
+    middle parts; no lane changes direction. Returns the gain.
+    """
+    best = _tour_cost(order, flip, n, ex, ey)
+    start = best
+    o = order.copy()
+    f = flip.copy()
+    tmp_o = np.empty(n, dtype=np.int64)
+    tmp_f = np.empty(n, dtype=np.int64)
+    span = min(n - 1, 50)
+    for _ in range(rounds):
+        a = np.random.randint(0, n - 3)
+        b = min(n - 2, a + 1 + np.random.randint(0, span))
+        c = min(n - 1, b + 1 + np.random.randint(0, span))
+        if not (a < b < c):
+            continue
+        # o[0..a] o[b+1..c] o[a+1..b] o[c+1..]
+        m = 0
+        for t in range(0, a + 1):
+            tmp_o[m] = o[t]; tmp_f[m] = f[t]; m += 1
+        for t in range(b + 1, c + 1):
+            tmp_o[m] = o[t]; tmp_f[m] = f[t]; m += 1
+        for t in range(a + 1, b + 1):
+            tmp_o[m] = o[t]; tmp_f[m] = f[t]; m += 1
+        for t in range(c + 1, n):
+            tmp_o[m] = o[t]; tmp_f[m] = f[t]; m += 1
+        for t in range(n):
+            o[t] = tmp_o[t]; f[t] = tmp_f[t]
+        while True:
+            gain = _two_opt(o, f, n, ex, ey, near, 8)
+            gain += _or_opt(o, f, n, ex, ey, near, 3, 8)
+            if gain == 0:
+                break
+        cost = _tour_cost(o, f, n, ex, ey)
+        if cost <= best:
+            best = cost
+            for t in range(n):
+                order[t] = o[t]; flip[t] = f[t]
+        else:
+            for t in range(n):
+                o[t] = order[t]; f[t] = flip[t]
+    return start - best
+
+
+def _improve(order, flip, ex, ey, deadline: float, kicks: bool = True) -> None:
+    """2-opt and Or-opt to a local optimum, then kicks until the deadline."""
     n = len(order)
     if n < 4:
         return
     near = _neighbours(ex, ey, order)
     while time.perf_counter() < deadline:
-        gain = _two_opt(order, flip, n, ex, ey, near, 4)
-        gain += _or_opt(order, flip, n, ex, ey, near, 3, 4)
+        gain = _two_opt(order, flip, n, ex, ey, near, 8)
+        gain += _or_opt(order, flip, n, ex, ey, near, 3, 8)
         if gain == 0:
             break
+    if not kicks or n < 8:
+        return
+    batch = 16
+    while (now := time.perf_counter()) < deadline:
+        _kicks(order, flip, n, ex, ey, near, batch)
+        spent = time.perf_counter() - now
+        # Batches of about 50 ms keep the deadline close.
+        batch = max(1, min(4 * batch, int(batch * 0.05 / max(spent, 1e-4))))
 
 
 def _serpentine(lanes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -789,17 +850,23 @@ def _ends(lanes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _settle(parts, ex, ey, deadline: float):
-    """Improve every tour, then balance and improve while the maximum drops."""
+    """Improve the longest tour, balance, and repeat until the deadline."""
+    began = time.perf_counter()
+    budget = deadline - began
     for o, f in parts:
-        _improve(o, f, ex, ey, deadline)
-    while len(parts) > 1 and time.perf_counter() < deadline:
-        before = max(_tour_cost(o, f, len(o), ex, ey) for o, f in parts)
-        parts = _balance(parts, ex, ey, deadline)
-        for o, f in parts:
-            _improve(o, f, ex, ey, deadline)
-        if max(_tour_cost(o, f, len(o), ex, ey) for o, f in parts) >= before:
-            break
-    return parts, [int(_tour_cost(o, f, len(o), ex, ey)) for o, f in parts]
+        _improve(o, f, ex, ey, deadline, kicks=False)
+    costs = [int(_tour_cost(o, f, len(o), ex, ey)) for o, f in parts]
+    turn = 0
+    while time.perf_counter() < deadline:
+        longest = max(range(len(parts)), key=costs.__getitem__)
+        until = min(deadline, time.perf_counter() + max(0.05, budget / 12))
+        o, f = parts[longest]
+        _improve(o, f, ex, ey, until)
+        if len(parts) > 1:
+            parts = _balance(parts, ex, ey, deadline)
+        costs = [int(_tour_cost(o, f, len(o), ex, ey)) for o, f in parts]
+        turn += 1
+    return parts, costs
 
 
 def _route(lanes: np.ndarray, k: int, piece: int, deadline: float):
@@ -821,8 +888,11 @@ def _route(lanes: np.ndarray, k: int, piece: int, deadline: float):
     cut, _ = _comb(lanes, 1, piece)
     ex, ey = _ends(cut)
     order, flip = _serpentine(cut)
-    _improve(order, flip, ex, ey, began + 0.75 * budget)
-    parts, lengths = _settle(_split(order, flip, ex, ey, k), ex, ey, deadline)
+    _improve(order, flip, ex, ey, began + (0.75 if k > 1 else 1.0) * budget)
+    if k > 1:
+        parts, lengths = _settle(_split(order, flip, ex, ey, k), ex, ey, deadline)
+    else:
+        parts, lengths = [(order, flip)], [int(_tour_cost(order, flip, len(order), ex, ey))]
     results.append((max(lengths), "serpentine", cut, parts, lengths))
 
     _, name, cut, parts, lengths = min(results, key=lambda r: r[0])
@@ -837,6 +907,7 @@ def solve(instance, time_limit: float = 30.0, seed: int = 0, refine: bool = True
     k = instance.number_of_cutters
     uid = instance.instance_uid
     rng = random.Random(seed)
+    _seed(seed)
     if len(region) == 0:
         return CGSHOP2027Solution(instance_uid=uid, tours=[make_tour([(0, 0)])] * k,
                                   meta={"algorithm": "lanes"})

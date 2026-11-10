@@ -175,11 +175,18 @@ def check_submission(archive: Path, instance_index: dict[str, Path]) -> list[str
 
 
 def build_submission(run: str, target: Path) -> tuple[Path, int]:
-    """Pack a run into the `.zip` the competition site expects."""
+    """Pack a run into the `.zip` the competition site expects.
+
+    The archive is written next to `target` and then moved over it, so an
+    older archive stays intact if packing fails half way.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_name(target.name + ".part")
+    partial.unlink(missing_ok=True)
     count = 0
-    with ZipWriter(target) as writer:
+    with ZipWriter(partial) as writer:
         for path in run_solutions(run):
             writer.add_solution(read_solution(path))
             count += 1
+    partial.replace(target)
     return target, count

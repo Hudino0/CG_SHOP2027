@@ -44,8 +44,12 @@ def _instance_index(paths: list[Path]) -> dict[str, Path]:
     return {p.name.removesuffix(config.INSTANCE_SUFFIX): p for p in paths}
 
 
-def _map(function, items, jobs: int, label: str) -> list:
-    """Run `function` over `items`, in parallel when asked, with progress."""
+def _map(function, items, jobs: int, label: str, isolate: bool = False) -> list:
+    """Run `function` over `items`, in parallel when asked, with progress.
+
+    With `isolate` every item runs in a fresh process, so the memory figures
+    are per item and a crash cannot take other items with it.
+    """
     results = []
     total = len(items)
 
@@ -58,7 +62,23 @@ def _map(function, items, jobs: int, label: str) -> list:
         elif index % step == 0 or index == total:
             print(f"  {label}: {index}/{total}", file=sys.stderr, flush=True)
 
-    if jobs > 1 and total > 1:
+    if isolate:
+        import multiprocessing
+
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(
+            max_workers=max(1, jobs), mp_context=context, max_tasks_per_child=1
+        ) as pool:
+            futures = [pool.submit(function, item) for item in items]
+            for index, future in enumerate(futures, 1):
+                try:
+                    results.append(future.result())
+                except BaseException as error:  # noqa: BLE001 - a killed worker
+                    name = Path(str(items[index - 1][0])).name
+                    uid = name.removesuffix(config.INSTANCE_SUFFIX)
+                    results.append((uid, 0, False, f"worker died: {type(error).__name__}"))
+                note(index)
+    elif jobs > 1 and total > 1:
         with ProcessPoolExecutor(max_workers=jobs) as pool:
             for index, value in enumerate(pool.map(function, items), 1):
                 results.append(value)
@@ -79,16 +99,46 @@ def _describe_worker(path: Path) -> catalog.InstanceStats:
 
 
 def _solve_worker(job: tuple[str, str, str, dict]) -> tuple[str, int, bool, str]:
-    """Solve one instance and write the solution. Returns a summary row."""
+    """Solve one instance and write the solution. Returns a summary row.
+
+    The solution is written only if the official validator accepts it. Its
+    `meta` gets the wall time and the peak memory of this worker process. A
+    solver that raises counts as a failure of that instance, not of the run.
+    """
     path_text, solver_name, run, options = job
+    import time
+
     from cgshop2027_pyutils.verify import check_for_errors
 
+    options = dict(options)
+    memory = options.pop("_memory_gb", None)
+    keep = options.pop("_keep_best", False)
     path = Path(path_text)
-    instance = catalog.load(path)
-    solution = SOLVERS[solver_name](instance, **options)
-    errors = check_for_errors(instance, solution)
+    uid = path.name.removesuffix(config.INSTANCE_SUFFIX)
+    try:
+        import resource
+    except ImportError:  # Windows
+        resource = None
+    if resource and memory:
+        cap = int(memory * 2**30)
+        resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
+    began = time.perf_counter()
+    try:
+        instance = catalog.load(path)
+        solution = SOLVERS[solver_name](instance, **options)
+        errors = check_for_errors(instance, solution)
+    except BaseException as error:  # noqa: BLE001 - one instance must not stop the run
+        return uid, 0, False, f"{type(error).__name__}: {str(error)[:200]}"
+    usage = {"solver": solver_name, "wall_seconds": round(time.perf_counter() - began, 1)}
+    if resource:
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        usage["peak_memory_gb"] = round(peak / 2**20, 2)
+    solution = solution.model_copy(update={"meta": {**solution.meta, **usage}})
     if not errors:
-        evaluate.write_solution(solution, run)
+        if keep:
+            evaluate.keep_best(solution, run)
+        else:
+            evaluate.write_solution(solution, run)
     return (
         instance.instance_uid,
         solution.max_tour_length,
@@ -207,13 +257,23 @@ def cmd_solve(args: argparse.Namespace) -> int:
             print(f"solver {args.solver!r} takes no --time-limit", file=sys.stderr)
             return 1
         options["time_limit"] = args.time_limit
+    if args.seed is not None:
+        if "seed" not in inspect.signature(SOLVERS[args.solver]).parameters:
+            print(f"solver {args.solver!r} takes no --seed", file=sys.stderr)
+            return 1
+        options["seed"] = args.seed
+    if args.memory_gb:
+        options["_memory_gb"] = args.memory_gb
+    if args.keep_best:
+        options["_keep_best"] = True
     jobs = [(str(p), args.solver, run, options) for p in paths]
-    results = _map(_solve_worker, jobs, args.jobs, f"solving with {args.solver}")
+    results = _map(_solve_worker, jobs, args.jobs, f"solving with {args.solver}",
+                   isolate=args.isolate)
 
     failed = [(uid, message) for uid, _, ok, message in results if not ok]
     print(f"\nrun {run!r}: {len(results) - len(failed)}/{len(results)} feasible")
     for uid, message in failed[:10]:
-        print(f"  INFEASIBLE {uid}: {message}")
+        print(f"  FAILED {uid}: {message}")
     print(f"solutions in {config.SOLUTIONS / run}")
     return 1 if failed else 0
 
@@ -550,6 +610,69 @@ def cmd_polish(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """One row per instance: bound, and objective, gap, time, memory per run."""
+    from cgshop2027_pyutils.io import read_solution
+
+    config.ensure_dirs()
+    catalog_path = config.OUT / "catalog.json"
+    if not catalog_path.is_file():
+        print("no catalog -- run `cg27 index` first", file=sys.stderr)
+        return 1
+    stats = {r["instance_uid"]: r for r in json.loads(catalog_path.read_text(encoding="utf-8"))}
+    stats = {uid: r for uid, r in stats.items() if args.suite in ("all", r["suite"])}
+    runs = args.run or evaluate.run_names()
+    rows = []
+    for uid, stat in sorted(stats.items()):
+        row = {
+            "instance_uid": uid,
+            "k": stat["number_of_cutters"],
+            "region_area": stat["region_area"],
+            "cutter_width": stat["cutter_width"],
+            "lower_bound": stat["lower_bound"],
+        }
+        for run in runs:
+            path = evaluate.solution_path(run, uid)
+            if not path.is_file():
+                row.update({f"{run}_objective": "", f"{run}_gap": "",
+                            f"{run}_seconds": "", f"{run}_memory_gb": ""})
+                continue
+            solution = read_solution(path)
+            objective = solution.max_tour_length
+            row[f"{run}_objective"] = objective
+            row[f"{run}_gap"] = round(objective / stat["lower_bound"], 4)
+            row[f"{run}_seconds"] = solution.meta.get("wall_seconds", "")
+            row[f"{run}_memory_gb"] = solution.meta.get("peak_memory_gb", "")
+        rows.append(row)
+    target = Path(args.output or config.OUT / "results.csv")
+    with target.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    best = {}
+    for row in rows:
+        values = [row[f"{run}_objective"] for run in runs if row[f"{run}_objective"] != ""]
+        if values:
+            best[row["instance_uid"]] = min(values)
+    print(f"{len(rows)} instances, {len(runs)} runs -> {target}")
+    print(f"{'run':<14}{'solved':>7}{'gap min':>9}{'median':>8}{'max':>8}{'score':>9}"
+          f"{'max s':>8}{'max GB':>8}")
+    for run in runs:
+        have = [r for r in rows if r[f"{run}_objective"] != ""]
+        if not have:
+            continue
+        gaps = sorted(r[f"{run}_gap"] for r in have)
+        score = sum((best[r["instance_uid"]] / r[f"{run}_objective"]) ** 2 for r in have)
+        seconds = [r[f"{run}_seconds"] for r in have if r[f"{run}_seconds"] != ""]
+        memory = [r[f"{run}_memory_gb"] for r in have if r[f"{run}_memory_gb"] != ""]
+        print(f"{run:<14}{len(have):>7}{gaps[0]:>9.3f}{gaps[len(gaps) // 2]:>8.3f}"
+              f"{gaps[-1]:>8.3f}{score:>9.2f}"
+              f"{max(seconds) if seconds else float('nan'):>8.0f}"
+              f"{max(memory) if memory else float('nan'):>8.2f}")
+    return 0
+
+
 def cmd_best(args: argparse.Namespace) -> int:
     """Merge runs into one run that keeps the best verified solution of each instance."""
     from cgshop2027_pyutils.io import read_solution
@@ -660,6 +783,15 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--clean", action="store_true", help="empty the run first")
     solve.add_argument("--time-limit", type=float, default=None,
                        help="seconds per instance, for solvers that take it")
+    solve.add_argument("--seed", type=int, default=None,
+                       help="random seed, for solvers that take it (default: 0)")
+    solve.add_argument("--isolate", action="store_true",
+                       help="one fresh process per instance: exact memory figures, "
+                            "and a crash stays local")
+    solve.add_argument("--memory-gb", type=float, default=None,
+                       help="memory limit per worker (not on Windows)")
+    solve.add_argument("--keep-best", action="store_true",
+                       help="never replace a stored solution by a longer one")
     solve.set_defaults(func=cmd_solve)
 
     verify = subparsers.add_parser("verify", help="check runs and compare them")
@@ -736,6 +868,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="seconds per instance (default: 20)")
     polish.add_argument("--seed", type=int, default=0)
     polish.set_defaults(func=cmd_polish)
+
+    report = subparsers.add_parser(
+        "report", help="write out/results.csv: bound, objective, gap, time and memory"
+    )
+    report.add_argument("--run", action="append", default=None,
+                        help="run to include (repeat it; default: all runs)")
+    report.add_argument("--suite", choices=("all", *config.SUITES), default="competition")
+    report.add_argument("-o", "--output", default=None)
+    report.set_defaults(func=cmd_report)
 
     best = subparsers.add_parser(
         "best", help="merge runs, keeping the best verified solution of each instance"
