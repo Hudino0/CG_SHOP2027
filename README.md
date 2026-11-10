@@ -176,12 +176,15 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/_blockls.py` | The compiled parts of `fekete`: puzzle pieces, 2-opt, Or-opt and LNS. |
 | `src/cgshop27/solvers/refine.py` | Shortens finished tours cell by cell. See 5.6. |
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
+| `src/cgshop27/solvers/scale.py` | Solves on the coarse lattice of an instance and lifts the tours. See 5.7. |
+| `src/cgshop27/solvers/lanes.py` | The strip solver: no blocks, any cutter width. See 5.8. |
+| `docs/algoritmo.md` | The statement, the proofs of feasibility and the lower bounds. |
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
 | `src/cgshop27/gridgraph.py` | Draws the block grid graph of the `fekete` solver. |
 | `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
 | `docs/PROMPT_FABLE.md` | The prompt for a long, rigorous solver session. |
 | `docs/revision_sistematica_literatura.pdf` | The literature review. It assumes a 1x1 cutter; the real cutters differ. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 11 sub-commands. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 15 sub-commands. |
 
 The pipeline writes into these directories. Git ignores them, except `instances/`.
 
@@ -222,6 +225,31 @@ cg27 overlap -j 8 --run baseline    # how much the tours overlap
 cg27 grid iso_11k_6k_3p --run fekete --open      # the grid graph
 cg27 submit --run baseline          # write out/submission_baseline.zip
 ```
+
+### Make the upload file for the contest (one command)
+
+```bash
+cg27 campaign -j 4 --time-limit 30 --seed 0
+```
+
+This command does the whole chain on the 250 contest instances:
+
+1. `cg27 index` writes the catalog.
+2. `cg27 solve` runs `boustrophedon`, `fekete` and `lanes`. Each instance
+   runs in its own process with a memory limit (`--isolate --memory-gb 10`).
+3. `cg27 best` copies the best verified solution of each instance into the
+   run `best`. This run **only improves**: a longer solution never replaces a
+   shorter one.
+4. `cg27 polish` refines the run `best` on the fine lattice and keeps only
+   the gains.
+5. `cg27 submit --run best --check competition` writes
+   `out/submission_best.zip`, reads it again and runs the official verifier.
+6. `cg27 report` writes `out/results.csv`: lower bound, objective, gap, time
+   and memory for each instance and each run.
+
+Run it again with another `--seed` or a longer `--time-limit`: the run `best`
+keeps the best of all. The seeds are fixed, but the solvers stop on a time
+limit. Thus a faster machine can get a slightly better result.
 
 ### Run all solvers and see the grid graph (one command)
 
@@ -559,6 +587,62 @@ Sources:
   2024. arXiv:2310.20340.
 - J. Tang, H. Ma. *Large-Scale Multi-Robot Coverage Path Planning via Local
   Search.* AAAI 2024. arXiv:2312.10797.
+
+### 5.7 The coarse lattice
+
+All coordinates of a contest instance are multiples of a pitch `g`: 1, 2 or 6
+for 1, 2 or 3 cutters. `scale.py` divides the instance by `g`, solves it, and
+multiplies the tours by `g`. The module gives the proof that the result is
+valid. The instance becomes `g x g` times smaller: the largest one has
+1 000 137 coarse cells, not 8 748 612.
+
+The first version of `fekete` failed on each cutter with a width of 8 cells or
+more, because a block did not fit into a 64-bit mask. That was 170 of the 250
+contest instances. Now `fekete` runs on the coarse lattice. If the cutter is
+still wider than 7 coarse cells, the lattice becomes coarser again: the region
+grows to full coarse cells and the cutter shrinks to full coarse cells. The
+result stays valid, but it loses quality.
+
+### 5.8 The solver `lanes`
+
+The solver `lanes` has no blocks. It works for each cutter width and shape.
+
+1. **Strips.** It cuts the rows of the region into strips. A strip is at most
+   as high as the cutter. One horizontal line of the cutter center mows one
+   strip. A dynamic program finds the cut with the lowest cost. It tries rows
+   and columns.
+2. **Lanes.** In each strip it computes the parts of the line that the center
+   must visit. These parts are the lanes.
+3. **Route.** A tour must pass along each lane. 2-opt and Or-opt moves and
+   random kicks improve the order of the lanes until the time is over.
+4. **k tours.** Two starts: each cutter gets two columns of the region (up
+   one, down the other), or one tour is cut into `k` tours. Lanes move from
+   the longest tour to the others.
+5. **Refine.** The refiner of 5.6 shortens the tours.
+
+`docs/algoritmo.md` gives the proof that the lanes cover the region.
+
+Use it like the other solvers:
+
+```bash
+cg27 solve -j 4 --solver lanes --run lanes --time-limit 20
+```
+
+### 5.9 A stronger lower bound
+
+A solution for a cutter is also a solution for each larger cutter. Therefore
+a lower bound for a larger cutter is valid for the smaller one. The catalog
+fills the notches of the cutter and takes the area bound of that shape. For
+the X-shaped cutters this bound is up to 50 % higher than the old one. The
+proof is in `docs/algoritmo.md`.
+
+### 5.10 One more error that I found and corrected
+
+The refiner has a test that decides if the cutter is convex. Only then it
+uses the reroute move. The test read a variable of an earlier loop. The result
+was `False` for each cutter that is not a rectangle, and the reroute move was
+off. With the correct test, `cg27 polish` makes the tours of `fekete` 0.5 % to
+2.3 % shorter on the instances that I measured.
 
 ## 6. What is next
 

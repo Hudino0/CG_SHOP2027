@@ -38,7 +38,8 @@ def block_size(instance: CGSHOP2027Instance, solution: CGSHOP2027Solution | None
     """The block size of a `fekete` solution, else the largest the solver tries."""
     meta = (solution.meta or {}) if solution is not None else {}
     if "block_size" in meta:
-        return int(meta["block_size"])
+        # A solution of the coarse lattice (`solvers.scale`) counts in coarse cells.
+        return int(meta["block_size"]) * int(meta.get("pitch", 1)) * int(meta.get("coarsening", 1))
     return _block_sizes(cutter_cells(instance))[-1]
 
 

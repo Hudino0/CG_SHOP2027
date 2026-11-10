@@ -673,6 +673,39 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_campaign(args: argparse.Namespace) -> int:
+    """The whole chain in one command: solve with every solver, keep the best, pack.
+
+    Seeds are fixed, but the solvers stop on a time limit, so a faster machine
+    gets further in the same seconds. The `best` run only improves, so running
+    the campaign again (or with another seed) never loses a solution.
+    """
+    suite = str(config.INSTANCES / args.suite)
+    shared = ["--instances", suite, "-j", str(args.jobs)]
+    if args.filter:
+        shared += ["--filter", args.filter]
+    steps = [["index", "-j", str(args.jobs), "--show", "0"]]
+    steps.append(["solve", *shared, "--solver", "boustrophedon", "--run", "baseline"])
+    for solver in ("fekete", "lanes"):
+        steps.append([
+            "solve", *shared, "--solver", solver, "--run", f"{solver}_s{args.seed}",
+            "--time-limit", str(args.time_limit), "--seed", str(args.seed),
+            "--isolate", "--memory-gb", str(args.memory_gb),
+        ])
+    steps.append(["best", "--instances", suite])
+    steps.append(["polish", *shared, "--run", "best", "--time-limit", str(args.polish_limit),
+                  "--seed", str(args.seed)])
+    steps.append(["submit", "--run", "best", "--check", args.suite])
+    steps.append(["report", "--suite", args.suite])
+    for step in steps:
+        print(f"\n== cg27 {' '.join(step)}", flush=True)
+        code = main(step)
+        # A solver may fail single instances; the best run still holds the rest.
+        if code and step[0] not in ("solve",):
+            return code
+    return 0
+
+
 def cmd_best(args: argparse.Namespace) -> int:
     """Merge runs into one run that keeps the best verified solution of each instance."""
     from cgshop2027_pyutils.io import read_solution
@@ -868,6 +901,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="seconds per instance (default: 20)")
     polish.add_argument("--seed", type=int, default=0)
     polish.set_defaults(func=cmd_polish)
+
+    campaign = subparsers.add_parser(
+        "campaign", help="solve with every solver, keep the best, polish, pack and report"
+    )
+    campaign.add_argument("--suite", choices=config.SUITES, default="competition")
+    campaign.add_argument("--filter", default=None)
+    campaign.add_argument("-j", "--jobs", type=int, default=4)
+    campaign.add_argument("--time-limit", type=float, default=30.0,
+                          help="seconds per instance and solver (default: 30)")
+    campaign.add_argument("--polish-limit", type=float, default=20.0,
+                          help="seconds per instance for the final refinement")
+    campaign.add_argument("--memory-gb", type=float, default=10.0,
+                          help="memory limit per worker (default: 10)")
+    campaign.add_argument("--seed", type=int, default=0)
+    campaign.set_defaults(func=cmd_campaign)
 
     report = subparsers.add_parser(
         "report", help="write out/results.csv: bound, objective, gap, time and memory"
