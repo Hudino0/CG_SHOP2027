@@ -17,6 +17,7 @@ import numpy as np
 from cgshop2027_pyutils.grid import CellSet, rasterize, rasterize_ring
 from cgshop2027_pyutils.io import read_instance
 from cgshop2027_pyutils.schemas import CGSHOP2027Instance
+from cgshop2027_pyutils.verify import SolutionValidator
 
 from .config import INSTANCE_SUFFIX, INSTANCES, SUITES
 
@@ -58,14 +59,43 @@ def find_instance(name: str, root: Path | None = None) -> Path:
 # -- geometry helpers ------------------------------------------------------
 
 
-def region_cells(instance: CGSHOP2027Instance) -> CellSet:
+@dataclass(frozen=True)
+class MaskInstance:
+    """An instance given by its cells instead of its polygons.
+
+    The solvers only need the region cells, the cutter cells relative to the
+    center, and `k`. `solvers.scale` builds these for a coarser lattice.
+    """
+
+    instance_uid: str
+    number_of_cutters: int
+    region: CellSet
+    cutter: CellSet
+
+
+def region_cells(instance) -> CellSet:
+    if isinstance(instance, MaskInstance):
+        return instance.region
     return rasterize(instance.region_to_cover)
 
 
-def cutter_cells(instance: CGSHOP2027Instance) -> CellSet:
+def cutter_cells(instance) -> CellSet:
     """The cutter footprint expressed relative to its center, as the verifier sees it."""
+    if isinstance(instance, MaskInstance):
+        return instance.cutter
     cx, cy = instance.cutter_center
     return rasterize_ring(instance.cutter).translated(-cx, -cy)
+
+
+def validator(instance) -> SolutionValidator:
+    """The official validator; for a `MaskInstance` it is built from the cells."""
+    if not isinstance(instance, MaskInstance):
+        return SolutionValidator(instance)
+    made = SolutionValidator.__new__(SolutionValidator)
+    made.instance = instance
+    made.region = instance.region
+    made.cutter = instance.cutter
+    return made
 
 
 def count_components(cells: CellSet) -> int:

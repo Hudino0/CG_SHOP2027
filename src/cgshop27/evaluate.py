@@ -32,6 +32,20 @@ def write_solution(solution: CGSHOP2027Solution, run: str) -> Path:
     return path
 
 
+def keep_best(solution: CGSHOP2027Solution, run: str = "best") -> bool:
+    """Write `solution` into `run` only if it beats what the run holds.
+
+    The caller must have verified the solution. An existing file is never
+    replaced by a longer or equal one, so a run filled through this function
+    can only improve.
+    """
+    path = solution_path(run, solution.instance_uid)
+    if path.is_file() and read_solution(path).max_tour_length <= solution.max_tour_length:
+        return False
+    write_solution(solution, run)
+    return True
+
+
 def run_names() -> list[str]:
     if not SOLUTIONS.is_dir():
         return []
@@ -138,6 +152,31 @@ def score(verdicts: list[Verdict]) -> dict[str, float]:
             reference = best[verdict.instance_uid]
             totals[verdict.run] += (reference / verdict.objective) ** 2
     return totals
+
+
+def check_submission(archive: Path, instance_index: dict[str, Path]) -> list[str]:
+    """Read the zip back the way the upload site does and verify every solution.
+
+    Returns the problems found: unreadable files, infeasible solutions, and
+    instances of `instance_index` that have no solution in the archive.
+    """
+    from cgshop2027_pyutils.zip.zip_processor import ZipSolutionIterator
+
+    problems: list[str] = []
+    seen: set[str] = set()
+    for solution in ZipSolutionIterator(archive):
+        uid = solution.instance_uid
+        if uid in seen:
+            problems.append(f"{uid}: more than one solution")
+            continue
+        seen.add(uid)
+        if uid not in instance_index:
+            problems.append(f"{uid}: no such instance")
+            continue
+        errors = SolutionValidator(load(instance_index[uid])).check_for_errors(solution)
+        problems.extend(f"{uid}: {error}" for error in errors)
+    problems.extend(f"{uid}: missing" for uid in sorted(set(instance_index) - seen))
+    return problems
 
 
 def build_submission(run: str, target: Path) -> tuple[Path, int]:

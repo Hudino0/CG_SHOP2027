@@ -493,10 +493,56 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     return 0 if all(r.feasible for r in results) else 1
 
 
+def cmd_best(args: argparse.Namespace) -> int:
+    """Merge runs into one run that keeps the best verified solution of each instance."""
+    from cgshop2027_pyutils.io import read_solution
+    from cgshop2027_pyutils.verify import SolutionValidator
+
+    index = _instance_index(catalog.instance_paths(args.instances))
+    candidates: dict[str, list[tuple[int, str, Path]]] = {}
+    for run in args.run or [r for r in evaluate.run_names() if r != args.into]:
+        for path in evaluate.run_solutions(run):
+            uid = path.name.removesuffix(config.SOLUTION_SUFFIX)
+            if uid in index:
+                candidates.setdefault(uid, []).append((0, run, path))
+    improved, wins = 0, {}
+    for uid, entries in sorted(candidates.items()):
+        current = evaluate.solution_path(args.into, uid)
+        held = read_solution(current).max_tour_length if current.is_file() else None
+        loaded = [(read_solution(path), run) for _, run, path in entries]
+        loaded.sort(key=lambda pair: pair[0].max_tour_length)
+        validator = None
+        for solution, run in loaded:
+            if held is not None and solution.max_tour_length >= held:
+                break
+            # Never trust a file: verify before it may replace the held one.
+            validator = validator or SolutionValidator(catalog.load(index[uid]))
+            if validator.check_for_errors(solution):
+                print(f"  INFEASIBLE {uid} in run {run!r}: skipped", file=sys.stderr)
+                continue
+            evaluate.keep_best(solution, args.into)
+            improved += 1
+            wins[run] = wins.get(run, 0) + 1
+            break
+    have = len(evaluate.run_solutions(args.into))
+    print(f"run {args.into!r}: {have} solutions, {improved} improved this time")
+    for run, count in sorted(wins.items(), key=lambda kv: -kv[1]):
+        print(f"  {count:4d} from {run}")
+    return 0
+
+
 def cmd_submit(args: argparse.Namespace) -> int:
     target = Path(args.output or config.OUT / f"submission_{args.run}.zip")
     path, count = evaluate.build_submission(args.run, target)
     print(f"packed {count} solutions -> {path}")
+    if args.check:
+        index = _instance_index(catalog.instance_paths(config.INSTANCES / args.check))
+        problems = evaluate.check_submission(path, index)
+        for problem in problems[:20]:
+            print(f"  PROBLEM {problem}")
+        print(f"official check against {len(index)} {args.check} instances: "
+              f"{'OK' if not problems else f'{len(problems)} problems'}")
+        return 1 if problems else 0
     return 0
 
 
@@ -623,9 +669,20 @@ def build_parser() -> argparse.ArgumentParser:
     pipe.add_argument("--open", action="store_true", help="open the report")
     pipe.set_defaults(func=cmd_pipeline)
 
+    best = subparsers.add_parser(
+        "best", help="merge runs, keeping the best verified solution of each instance"
+    )
+    best.add_argument("--run", action="append", default=None,
+                      help="run to take from (repeat it; default: all runs)")
+    best.add_argument("--into", default="best", help="the run that only improves")
+    best.add_argument("--instances", type=Path, default=None)
+    best.set_defaults(func=cmd_best)
+
     submit = subparsers.add_parser("submit", help="pack a run into an upload zip")
     submit.add_argument("--run", default="boustrophedon")
     submit.add_argument("-o", "--output", default=None)
+    submit.add_argument("--check", choices=config.SUITES, default=None,
+                        help="read the zip back and verify it against this suite")
     submit.set_defaults(func=cmd_submit)
 
     return parser

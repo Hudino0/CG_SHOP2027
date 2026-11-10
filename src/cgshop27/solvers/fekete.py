@@ -54,6 +54,7 @@ from cgshop2027_pyutils.schemas import CGSHOP2027Instance, CGSHOP2027Solution
 from cgshop2027_pyutils.verify import SolutionValidator
 
 from ..catalog import cutter_cells, region_cells
+from ..catalog import validator as make_validator
 from ._blockls import Tour, order_cost, piece_table, seed_rng
 from ._tour import Point, make_tour
 from .refine import Refiner
@@ -1046,7 +1047,7 @@ def solve(
     _warm_up(offsets, _block_sizes(cutter)[-1])
     began = time.perf_counter()
     k = instance.number_of_cutters
-    validator = SolutionValidator(instance)
+    validator = make_validator(instance)
     rng = random.Random(seed)
 
     if len(region) == 0:
