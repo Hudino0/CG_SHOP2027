@@ -11,7 +11,10 @@ ROOT = Path(os.environ.get("CG27_ROOT", Path(__file__).resolve().parents[2]))
 
 DATA = ROOT / "data"
 RAW = DATA / "raw"
-INSTANCES = DATA / "instances"
+#: Versioned instances. `test/` are the organizers' example instances (they do
+#: not score); `competition/` are the official contest instances.
+INSTANCES = ROOT / "instances"
+SUITES = ("test", "competition")
 SOLUTIONS = DATA / "solutions"
 OUT = ROOT / "out"
 RENDERS = OUT / "renders"
@@ -21,6 +24,12 @@ ANIMATIONS = OUT / "animations"
 EXAMPLE_INSTANCES_URL = (
     "https://cgshop.ibr.cs.tu-bs.de/content_management/media/"
     "cgshop_2027_example_instances"
+)
+
+#: Where the organizers publish the official contest instances (v0, 14-10-2026).
+CHALLENGE_INSTANCES_URL = (
+    "https://cgshop.ibr.cs.tu-bs.de/content_management/media/"
+    "cgshop_2027_challenge_instances"
 )
 
 #: What `cg27 animate` can write. GIF travels well; HTML is the one to study

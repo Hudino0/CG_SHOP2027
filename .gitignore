@@ -2,7 +2,6 @@
 __pycache__/
 *.egg-info/
 data/raw/
-data/instances/
 data/solutions/
 out/
 
@@ -10,3 +9,4 @@ out/
 video/build/
 video/*_480p15.mp4
 *.pdf
+!docs/*.pdf

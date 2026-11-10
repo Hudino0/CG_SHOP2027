@@ -3,7 +3,7 @@
 Every stage reads from and writes to the directories in `config.py`, so the
 stages compose without passing paths around:
 
-    cg27 fetch            # download and unpack the example instances
+    cg27 fetch            # download the test and the competition instances
     cg27 index            # catalog.csv / catalog.json + a summary
     cg27 solve            # data/solutions/<run>/*.solution.json
     cg27 verify --run ... # feasibility and the gap to the lower bound
@@ -129,19 +129,28 @@ def _render_solution_worker(job: tuple[str, str, str]) -> str:
 
 def cmd_fetch(args: argparse.Namespace) -> int:
     config.ensure_dirs()
-    archive = config.RAW / "example_instances.zip"
-    if archive.exists() and not args.force:
-        print(f"already downloaded: {archive} (use --force to refetch)")
-    else:
-        print(f"downloading {config.EXAMPLE_INSTANCES_URL}")
-        with urllib.request.urlopen(config.EXAMPLE_INSTANCES_URL) as response:
-            archive.write_bytes(response.read())
-        print(f"  -> {archive} ({archive.stat().st_size:,} bytes)")
-
-    with zipfile.ZipFile(archive) as bundle:
-        members = [n for n in bundle.namelist() if n.endswith(config.INSTANCE_SUFFIX)]
-        bundle.extractall(config.INSTANCES, members=members)
-    print(f"extracted {len(members)} instances into {config.INSTANCES}")
+    sources = {
+        "test": ("example_instances.zip", config.EXAMPLE_INSTANCES_URL),
+        "competition": ("challenge_instances.zip", config.CHALLENGE_INSTANCES_URL),
+    }
+    wanted = config.SUITES if args.suite == "all" else (args.suite,)
+    for suite in wanted:
+        name, url = sources[suite]
+        archive = config.RAW / name
+        if archive.exists() and not args.force:
+            print(f"already downloaded: {archive} (use --force to refetch)")
+        else:
+            print(f"downloading {url}")
+            with urllib.request.urlopen(url) as response:
+                archive.write_bytes(response.read())
+            print(f"  -> {archive} ({archive.stat().st_size:,} bytes)")
+        target = config.INSTANCES / suite
+        target.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(archive) as bundle:
+            members = [m for m in bundle.namelist() if m.endswith(config.INSTANCE_SUFFIX)]
+            for member in members:
+                (target / Path(member).name).write_bytes(bundle.read(member))
+        print(f"extracted {len(members)} {suite} instances into {target}")
     return 0
 
 
@@ -519,7 +528,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def common(sub: argparse.ArgumentParser, *, jobs: bool = True) -> None:
         sub.add_argument("--instances", type=Path, default=None,
-                         help="directory to scan (default: data/instances)")
+                         help="directory to scan (default: instances/)")
         sub.add_argument("--filter", default=None,
                          help="keep instances whose file name contains this")
         sub.add_argument("--limit", type=int, default=None,
@@ -528,7 +537,11 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("-j", "--jobs", type=int, default=1,
                              help="worker processes (default: 1)")
 
-    fetch = subparsers.add_parser("fetch", help="download the example instances")
+    fetch = subparsers.add_parser(
+        "fetch", help="download the test and competition instances"
+    )
+    fetch.add_argument("--suite", choices=("all", *config.SUITES), default="all",
+                       help="which instances to get (default: all)")
     fetch.add_argument("--force", action="store_true", help="redownload the archive")
     fetch.set_defaults(func=cmd_fetch)
 
