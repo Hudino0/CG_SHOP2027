@@ -582,16 +582,38 @@ def _polish_worker(job: tuple[str, str, str, float, int]) -> tuple[str, int, int
     from .solvers.refine import Refiner
 
     instance_path, solution_path, into, seconds, seed = job
+    from .solvers import scale
+
     instance = catalog.load(Path(instance_path))
     solution = read_solution(Path(solution_path))
     before = solution.max_tour_length
-    region, cutter = catalog.region_cells(instance), catalog.cutter_cells(instance)
     moving = [i for i, tour in enumerate(solution.tours) if tour.length > 0]
     paths = [list(zip(solution.tours[i].x, solution.tours[i].y)) for i in moving]
     if not paths:
         return instance.instance_uid, before, before, ""
+    rng = random.Random(seed)
+    began = time.perf_counter()
+
+    # Stage 1, on the coarse lattice, while the tours still lie on it: the
+    # same moves cost g * g times less there.
+    g = scale.lattice_pitch(instance)
+    if g > 1:
+        coarse, shift = scale.coarsen(instance, g)
+        on_lattice = all(
+            (x - shift[0]) % g == 0 and (y - shift[1]) % g == 0 for path in paths for x, y in path
+        )
+        if on_lattice:
+            small = [[((x - shift[0]) // g, (y - shift[1]) // g) for x, y in path] for path in paths]
+            refiner = Refiner(coarse.region.mask, coarse.region.origin,
+                              list(coarse.cutter.cells()), small)
+            refiner.run(began + seconds / 2, rng, drift=True)
+            paths = [[(g * x + shift[0], g * y + shift[1]) for x, y in path]
+                     for path in refiner.paths()]
+
+    # Stage 2, on the instance's own lattice.
+    region, cutter = catalog.region_cells(instance), catalog.cutter_cells(instance)
     refiner = Refiner(region.mask, region.origin, list(cutter.cells()), paths)
-    refiner.run(time.perf_counter() + seconds, random.Random(seed), drift=True)
+    refiner.run(began + seconds, rng, drift=True)
     tours = list(solution.tours)
     for i, path in zip(moving, refiner.paths()):
         tours[i] = make_tour(path)
