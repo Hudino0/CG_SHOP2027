@@ -490,23 +490,78 @@ def _or_opt(order, flip, n, ex, ey, near, max_chain, rounds_limit):
     return gained
 
 
+@njit(cache=True)
+def _knn(px, py, lane, count, out):
+    """For every point the `count` nearest points of other lanes (L1), by a grid.
+
+    `out[i]` gets indices into the point arrays, nearest first, -1 padded.
+    """
+    m = px.shape[0]
+    x0, y0 = px.min(), py.min()
+    spanx, spany = px.max() - x0 + 1, py.max() - y0 + 1
+    cell = max(1, int(np.sqrt(spanx * spany * (count + 2) / m)))
+    gx, gy = spanx // cell + 1, spany // cell + 1
+    start = np.zeros(gx * gy + 1, dtype=np.int64)
+    key = np.empty(m, dtype=np.int64)
+    for i in range(m):
+        key[i] = ((py[i] - y0) // cell) * gx + (px[i] - x0) // cell
+        start[key[i] + 1] += 1
+    for c in range(gx * gy):
+        start[c + 1] += start[c]
+    fill = start[:-1].copy()
+    items = np.empty(m, dtype=np.int64)
+    for i in range(m):
+        items[fill[key[i]]] = i
+        fill[key[i]] += 1
+    best_d = np.empty(count, dtype=np.int64)
+    best_i = np.empty(count, dtype=np.int64)
+    for i in range(m):
+        cx, cy = (px[i] - x0) // cell, (py[i] - y0) // cell
+        found = 0
+        r = 0
+        while True:
+            # Scan the ring of cells at Chebyshev distance r.
+            for yy in range(cy - r, cy + r + 1):
+                if yy < 0 or yy >= gy:
+                    continue
+                inner = yy != cy - r and yy != cy + r
+                xx = cx - r
+                while xx <= cx + r:
+                    if 0 <= xx < gx:
+                        c = yy * gx + xx
+                        for t in range(start[c], start[c + 1]):
+                            j = items[t]
+                            if lane[j] == lane[i]:
+                                continue
+                            d = abs(px[i] - px[j]) + abs(py[i] - py[j])
+                            if found < count or d < best_d[found - 1]:
+                                q = found if found < count else count - 1
+                                while q > 0 and best_d[q - 1] > d:
+                                    best_d[q] = best_d[q - 1]
+                                    best_i[q] = best_i[q - 1]
+                                    q -= 1
+                                best_d[q] = d
+                                best_i[q] = j
+                                if found < count:
+                                    found += 1
+                    xx += 2 * r if inner and r > 0 else 1
+            # Everything nearer than r * cell has been seen.
+            if (found == count and best_d[count - 1] <= r * cell) or r > gx + gy:
+                break
+            r += 1
+        for q in range(count):
+            out[i, q] = best_i[q] if q < found else -1
+
+
 def _neighbours(ex: np.ndarray, ey: np.ndarray, members: np.ndarray, count: int = 10) -> np.ndarray:
     """For every lane end of `members`, the nearest ends of other lanes."""
     near = np.full((ex.shape[0], count), -1, dtype=np.int64)
     ends = np.concatenate([2 * members, 2 * members + 1])
     if ends.size <= 2:
         return near
-    px, py = ex[ends], ey[ends]
-    # Blocks keep the distance matrix small.
-    for start in range(0, ends.size, 2048):
-        part = slice(start, start + 2048)
-        dist = np.abs(px[part, None] - px[None, :]) + np.abs(py[part, None] - py[None, :])
-        dist[ends[part, None] // 2 == ends[None, :] // 2] = 1 << 60
-        take = min(count, ends.size - 2)
-        idx = np.argpartition(dist, take - 1, axis=1)[:, :take]
-        rows = np.arange(idx.shape[0])[:, None]
-        idx = idx[rows, np.argsort(dist[rows, idx], axis=1)]
-        near[ends[part], :take] = ends[idx]
+    local = np.empty((ends.size, count), dtype=np.int64)
+    _knn(ex[ends], ey[ends], ends // 2, count, local)
+    near[ends] = np.where(local >= 0, ends[np.maximum(local, 0)], -1)
     return near
 
 

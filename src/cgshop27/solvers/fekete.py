@@ -1035,11 +1035,16 @@ def _warm_up(offsets: list[Point], s: int) -> None:
 
 
 def solve(
-    instance: CGSHOP2027Instance, time_limit: float = 30.0, seed: int = 0, refine: bool = True
+    instance: CGSHOP2027Instance, time_limit: float = 30.0, seed: int = 0, refine: bool = True,
+    block: int | None = None, shift: int = 0,
 ) -> CGSHOP2027Solution:
     """Tile-based mowing (TSP_Cov + turn cost), best over the block sizes.
 
-    `time_limit` is in seconds and is shared among the block sizes.
+    `time_limit` is in seconds and is shared among the block sizes. `block`
+    fixes the block size (no race). `shift` picks the grid offset: 0 is the
+    offset with the fewest blocks, 1 the next one, and so on. Other offsets
+    give other tours of nearly the same length, which is what a portfolio
+    wants.
     """
     region = region_cells(instance)
     cutter = cutter_cells(instance)
@@ -1076,10 +1081,19 @@ def solve(
     # time and goes on from its race tour. The largest blocks (TSP_Cov) win
     # most often, as in the paper, but not always.
     sizes = _block_sizes(cutter)[::-1]
+    if block is not None:
+        sizes = [min(max(block, sizes[-1]), sizes[0])]
+
+    def make_model(s: int) -> _Model:
+        if not shift:
+            return _Model(region, offsets, s)
+        ranked = grid_shifts(region, s)
+        return _Model(region, offsets, s, ranked[shift % len(ranked)][1])
+
     race = RACE_SHARE / len(sizes) if len(sizes) > 1 else 1.0
     best, results = None, {}
     for i, s in enumerate(sizes):
-        model = _Model(region, offsets, s)
+        model = make_model(s)
         solution, meta, order = attempt(model, began + time_limit * race * (i + 1))
         results[s] = (solution.max_tour_length, model, order)
         if best is None or solution.max_tour_length < best[0].max_tour_length:

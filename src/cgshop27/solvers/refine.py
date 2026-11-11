@@ -76,6 +76,11 @@ def _stamp(cnt, reg, x, y, ox, oy, sign):
 
 
 @njit(cache=True)
+def _seed_kernel(value):
+    np.random.seed(value)
+
+
+@njit(cache=True)
 def _stamp_all(cnt, P, ox, oy):
     """Add the sweep of every point of a walk to the counter."""
     for i in range(P.shape[0]):
@@ -209,24 +214,29 @@ def _walk_covers(qs, nq, wx, wy, nw, rlo, rhi, clo, chi, cy0, cx0):
 
 @njit(cache=True)
 def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
-               rlo, rhi, clo, chi, cy0, cx0, res):
+               rlo, rhi, clo, chi, cy0, cx0, res, ties):
     """Shortest walk a -> b with <= 3 corners, below `limit`, sweeping all qs.
 
     The walks are a, (ax, t), (u, t), (u, by), b (vertical first) and the mirror
     a, (t, ay), (t, u), (bx, u), b. `t` and `u` range over the box. Writes the
     five points into res and returns the length, or -1.
+
+    With `ties` a walk as long as `limit` is accepted too, and one of the
+    shortest walks is drawn at random. Such a move gains nothing, but it lets
+    a lane or a U-turn drift, and a later move may then gain.
     """
     wx = np.empty(5, dtype=np.int64)
     wy = np.empty(5, dtype=np.int64)
     best = limit
     found = -1
+    seen = 0
     for mode in range(2):
         for t in range(by0 if mode == 0 else bx0, (by1 if mode == 0 else bx1) + 1):
             if mode == 0:
                 base = abs(ay - t) + abs(t - by)
             else:
                 base = abs(ax - t) + abs(t - bx)
-            if base + (abs(ax - bx) if mode == 0 else abs(ay - by)) >= best:
+            if base + (abs(ax - bx) if mode == 0 else abs(ay - by)) >= best + ties:
                 continue
             lo = bx0 if mode == 0 else by0
             hi = bx1 if mode == 0 else by1
@@ -235,7 +245,7 @@ def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
                     length = base + abs(u - ax) + abs(bx - u)
                 else:
                     length = base + abs(u - ay) + abs(by - u)
-                if length >= best:
+                if length >= best + ties:
                     continue
                 if mode == 0:
                     wx[0] = ax; wy[0] = ay
@@ -250,6 +260,14 @@ def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
                     wx[3] = bx; wy[3] = u
                     wx[4] = bx; wy[4] = by
                 if _walk_covers(qs, nq, wx, wy, 5, rlo, rhi, clo, chi, cy0, cx0):
+                    if length == best and found >= 0:
+                        # One more walk of the best length: keep it with
+                        # probability 1 / (number seen).
+                        seen += 1
+                        if np.random.randint(0, seen) != 0:
+                            continue
+                    else:
+                        seen = 1
                     best = length
                     found = length
                     for s in range(5):
@@ -260,7 +278,7 @@ def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
 
 @njit(cache=True)
 def _reroute_pass(P, cnt, reg, ox, oy, rlo, rhi, clo, chi, cy0, cx0,
-                  corners, max_segments, qmax, pad):
+                  corners, max_segments, qmax, pad, ties):
     """Try the reroute move on windows that start and end at corners."""
     n = P.shape[0]
     out = np.empty((n, 2), dtype=np.int64)
@@ -324,7 +342,7 @@ def _reroute_pass(P, cnt, reg, ox, oy, rlo, rhi, clo, chi, cy0, cx0,
                 x0 = max(x0, pad); y0 = max(y0, pad)
                 x1 = min(x1, reg.shape[1] - 1 - pad); y1 = min(y1, reg.shape[0] - 1 - pad)
                 length = _best_walk(ax, ay, bx, by, j - i, qs, nq, x0, y0, x1, y1,
-                                    rlo, rhi, clo, chi, cy0, cx0, res)
+                                    rlo, rhi, clo, chi, cy0, cx0, res, ties)
                 ok = length >= 0
             if not ok:
                 for t in range(i + 1, j):
@@ -436,7 +454,7 @@ class Refiner:
         return np.flatnonzero(turn).astype(np.int64)
 
     def improve(self, t: int, rng: random.Random, window: int = 64,
-                max_segments: int = 4, qmax: int = 4096) -> int:
+                max_segments: int = 4, qmax: int = 4096, ties: int = 0) -> int:
         """One round of both moves on tour t, from a random rotation."""
         P = self.tours[t]
         if len(P) < 4:
@@ -448,11 +466,17 @@ class Refiner:
             P = np.roll(P, -rng.randrange(len(P)), axis=0)
             corners = self._corners(P)
             P, g2 = _reroute_pass(P, self.cnt, self.reg, self.ox, self.oy, *self.spans,
-                                  corners, max_segments, qmax, self.pad // 2)
+                                  corners, max_segments, qmax, self.pad // 2, ties)
         self.tours[t] = P
         return g1 + g2
 
-    def run(self, deadline: float, rng: random.Random, max_segments: int = 4) -> None:
+    def run(self, deadline: float, rng: random.Random, max_segments: int = 4,
+            drift: bool = False) -> None:
+        """Descend until no move gains; with `drift`, go on until the deadline.
+
+        The drift phase also takes reroutes that gain nothing, at random. No
+        move ever makes a tour longer, so the tours only improve.
+        """
         idle = [0] * len(self.tours)
         while time.perf_counter() < deadline:
             order = sorted(range(len(self.tours)), key=lambda t: -len(self.tours[t]))
@@ -465,3 +489,11 @@ class Refiner:
                 progress = progress or idle[t] < 3
             if not progress:
                 break
+        if not drift or not self.convex:
+            return
+        _seed_kernel(rng.randrange(1 << 30))
+        while time.perf_counter() < deadline:
+            for t in sorted(range(len(self.tours)), key=lambda t: -len(self.tours[t])):
+                if time.perf_counter() >= deadline:
+                    break
+                self.improve(t, rng, max_segments=max_segments, ties=1)

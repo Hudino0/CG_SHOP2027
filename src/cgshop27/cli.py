@@ -122,9 +122,17 @@ def _solve_worker(job: tuple[str, str, str, dict]) -> tuple[str, int, bool, str]
     if resource and memory:
         cap = int(memory * 2**30)
         resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
+    time_max = options.pop("_time_max", None)
     began = time.perf_counter()
     try:
         instance = catalog.load(path)
+        if time_max and "time_limit" in options:
+            # Large instances get more time: the limit grows with the number
+            # of coarse cells, from `--time-limit` up to `--time-max`.
+            from .solvers.scale import lattice_pitch
+
+            cells = len(catalog.region_cells(instance)) / lattice_pitch(instance) ** 2
+            options["time_limit"] = min(time_max, options["time_limit"] * max(1.0, cells / 30000))
         solution = SOLVERS[solver_name](instance, **options)
         errors = check_for_errors(instance, solution)
     except BaseException as error:  # noqa: BLE001 - one instance must not stop the run
@@ -262,6 +270,14 @@ def cmd_solve(args: argparse.Namespace) -> int:
             print(f"solver {args.solver!r} takes no --seed", file=sys.stderr)
             return 1
         options["seed"] = args.seed
+    for item in args.option or []:
+        key, _, value = item.partition("=")
+        if key not in inspect.signature(SOLVERS[args.solver]).parameters:
+            print(f"solver {args.solver!r} has no option {key!r}", file=sys.stderr)
+            return 1
+        options[key] = json.loads(value)
+    if args.time_max:
+        options["_time_max"] = args.time_max
     if args.memory_gb:
         options["_memory_gb"] = args.memory_gb
     if args.keep_best:
@@ -575,7 +591,7 @@ def _polish_worker(job: tuple[str, str, str, float, int]) -> tuple[str, int, int
     if not paths:
         return instance.instance_uid, before, before, ""
     refiner = Refiner(region.mask, region.origin, list(cutter.cells()), paths)
-    refiner.run(time.perf_counter() + seconds, random.Random(seed))
+    refiner.run(time.perf_counter() + seconds, random.Random(seed), drift=True)
     tours = list(solution.tours)
     for i, path in zip(moving, refiner.paths()):
         tours[i] = make_tour(path)
@@ -706,6 +722,39 @@ def cmd_campaign(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_grind(args: argparse.Namespace) -> int:
+    """Rounds of new solutions from other seeds and grid offsets; `best` keeps the gains.
+
+    The solvers reach the level of their model within seconds, and another
+    seed or grid offset gives another tour of about the same length (spread
+    about 1 % to 3 %). So many short runs beat one long run. Each round
+    solves with `fekete` (grid offset and seed = round number) and `lanes`
+    (seed = round number), polishes the round on the fine lattice, and merges
+    it into `best`.
+    """
+    suite = str(config.INSTANCES / args.suite)
+    shared = ["--instances", suite, "-j", str(args.jobs)]
+    if args.filter:
+        shared += ["--filter", args.filter]
+    for number in range(args.first, args.first + args.rounds):
+        for solver, extra in (("fekete", ["-O", f"shift={number}"]), ("lanes", [])):
+            run = f"round_{solver}"
+            steps = [
+                ["solve", *shared, "--solver", solver, "--run", run, "--clean",
+                 "--time-limit", str(args.time_limit), "--time-max", str(args.time_max),
+                 "--seed", str(number), "--isolate", "--memory-gb", str(args.memory_gb), *extra],
+                ["polish", *shared, "--run", run, "--time-limit", str(args.polish_limit),
+                 "--seed", str(number)],
+                ["best", "--run", run, "--instances", suite],
+            ]
+            for step in steps:
+                print(f"\n== round {number}: cg27 {' '.join(step)}", flush=True)
+                main(step)
+        main(["submit", "--run", "best", "--check", args.suite])
+        main(["report", "--suite", args.suite, "--run", "best"])
+    return 0
+
+
 def cmd_best(args: argparse.Namespace) -> int:
     """Merge runs into one run that keeps the best verified solution of each instance."""
     from cgshop2027_pyutils.io import read_solution
@@ -816,6 +865,10 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--clean", action="store_true", help="empty the run first")
     solve.add_argument("--time-limit", type=float, default=None,
                        help="seconds per instance, for solvers that take it")
+    solve.add_argument("--time-max", type=float, default=None,
+                       help="let --time-limit grow with the instance size, up to this")
+    solve.add_argument("-O", "--option", action="append", default=None, metavar="KEY=VALUE",
+                       help="another option of the solver, e.g. -O shift=3 (repeat it)")
     solve.add_argument("--seed", type=int, default=None,
                        help="random seed, for solvers that take it (default: 0)")
     solve.add_argument("--isolate", action="store_true",
@@ -916,6 +969,20 @@ def build_parser() -> argparse.ArgumentParser:
                           help="memory limit per worker (default: 10)")
     campaign.add_argument("--seed", type=int, default=0)
     campaign.set_defaults(func=cmd_campaign)
+
+    grind = subparsers.add_parser(
+        "grind", help="rounds of other seeds and grid offsets; the run best keeps the gains"
+    )
+    grind.add_argument("--suite", choices=config.SUITES, default="competition")
+    grind.add_argument("--filter", default=None)
+    grind.add_argument("-j", "--jobs", type=int, default=4)
+    grind.add_argument("--rounds", type=int, default=1)
+    grind.add_argument("--first", type=int, default=1, help="number of the first round")
+    grind.add_argument("--time-limit", type=float, default=8.0)
+    grind.add_argument("--time-max", type=float, default=60.0)
+    grind.add_argument("--polish-limit", type=float, default=8.0)
+    grind.add_argument("--memory-gb", type=float, default=10.0)
+    grind.set_defaults(func=cmd_grind)
 
     report = subparsers.add_parser(
         "report", help="write out/results.csv: bound, objective, gap, time and memory"
