@@ -172,31 +172,43 @@ def _shortcut_pass(P, cnt, reg, ox, oy, window):
 
 
 @njit(cache=True)
-def _seg_covers(qx, qy, x0, y0, x1, y1, rlo, rhi, clo, chi, cy0, cx0):
-    """Does the axis-parallel segment (x0,y0)-(x1,y1) sweep cell (qx, qy)?"""
+def _seg_covers(qx, qy, x0, y0, x1, y1, rrun, rcnt, crun, ccnt, cy0, cx0):
+    """Does the axis-parallel segment (x0,y0)-(x1,y1) sweep cell (qx, qy)?
+
+    `rrun[r, j] = (lo, hi)` are the runs of cutter row `r` (offsets in x),
+    `rcnt[r]` their number; `crun`, `ccnt` the same for the columns. A center
+    `x` on the segment sweeps the cell through run `j` when `qx - x` lies in
+    the run, that is `x` in `[qx - hi, qx - lo]`. The test is exact for any
+    cutter shape.
+    """
     if y0 == y1:
         dy = qy - y0 - cy0
-        if dy < 0 or dy >= rlo.shape[0] or rlo[dy] > rhi[dy]:
+        if dy < 0 or dy >= rcnt.shape[0]:
             return False
         lo = min(x0, x1)
         hi = max(x0, x1)
-        # Need x in [lo, hi] with qx - x in [rlo, rhi].
-        return qx - rhi[dy] <= hi and qx - rlo[dy] >= lo
+        for j in range(rcnt[dy]):
+            if qx - rrun[dy, j, 1] <= hi and qx - rrun[dy, j, 0] >= lo:
+                return True
+        return False
     dx = qx - x0 - cx0
-    if dx < 0 or dx >= clo.shape[0] or clo[dx] > chi[dx]:
+    if dx < 0 or dx >= ccnt.shape[0]:
         return False
     lo = min(y0, y1)
     hi = max(y0, y1)
-    return qy - chi[dx] <= hi and qy - clo[dx] >= lo
+    for j in range(ccnt[dx]):
+        if qy - crun[dx, j, 1] <= hi and qy - crun[dx, j, 0] >= lo:
+            return True
+    return False
 
 
 @njit(cache=True)
-def _walk_covers(qs, nq, wx, wy, nw, rlo, rhi, clo, chi, cy0, cx0):
+def _walk_covers(qs, nq, wx, wy, nw, rrun, rcnt, crun, ccnt, cy0, cx0):
     for q in range(nq):
         ok = False
         for s in range(nw - 1):
             if _seg_covers(qs[q, 0], qs[q, 1], wx[s], wy[s], wx[s + 1], wy[s + 1],
-                           rlo, rhi, clo, chi, cy0, cx0):
+                           rrun, rcnt, crun, ccnt, cy0, cx0):
                 ok = True
                 break
         if not ok:
@@ -214,7 +226,7 @@ def _walk_covers(qs, nq, wx, wy, nw, rlo, rhi, clo, chi, cy0, cx0):
 
 @njit(cache=True)
 def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
-               rlo, rhi, clo, chi, cy0, cx0, res, ties):
+               rrun, rcnt, crun, ccnt, cy0, cx0, res, ties):
     """Shortest walk a -> b with <= 3 corners, below `limit`, sweeping all qs.
 
     The walks are a, (ax, t), (u, t), (u, by), b (vertical first) and the mirror
@@ -259,7 +271,7 @@ def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
                     wx[2] = t; wy[2] = u
                     wx[3] = bx; wy[3] = u
                     wx[4] = bx; wy[4] = by
-                if _walk_covers(qs, nq, wx, wy, 5, rlo, rhi, clo, chi, cy0, cx0):
+                if _walk_covers(qs, nq, wx, wy, 5, rrun, rcnt, crun, ccnt, cy0, cx0):
                     if length == best and found >= 0:
                         # One more walk of the best length: keep it with
                         # probability 1 / (number seen).
@@ -277,7 +289,7 @@ def _best_walk(ax, ay, bx, by, limit, qs, nq, bx0, by0, bx1, by1,
 
 
 @njit(cache=True)
-def _reroute_pass(P, cnt, reg, ox, oy, rlo, rhi, clo, chi, cy0, cx0,
+def _reroute_pass(P, cnt, reg, ox, oy, rrun, rcnt, crun, ccnt, cy0, cx0,
                   corners, max_segments, qmax, pad, ties):
     """Try the reroute move on windows that start and end at corners."""
     n = P.shape[0]
@@ -342,7 +354,7 @@ def _reroute_pass(P, cnt, reg, ox, oy, rlo, rhi, clo, chi, cy0, cx0,
                 x0 = max(x0, pad); y0 = max(y0, pad)
                 x1 = min(x1, reg.shape[1] - 1 - pad); y1 = min(y1, reg.shape[0] - 1 - pad)
                 length = _best_walk(ax, ay, bx, by, j - i, qs, nq, x0, y0, x1, y1,
-                                    rlo, rhi, clo, chi, cy0, cx0, res, ties)
+                                    rrun, rcnt, crun, ccnt, cy0, cx0, res, ties)
                 ok = length >= 0
             if not ok:
                 for t in range(i + 1, j):
@@ -384,6 +396,266 @@ def _reroute_pass(P, cnt, reg, ox, oy, rlo, rhi, clo, chi, cy0, cx0,
     return out[:m].copy(), gained
 
 
+# -- moving work between tours -------------------------------------------------
+
+
+@njit(cache=True)
+def _find_transfer(A, B, la, lb, reach, stride):
+    """The best part `A[i..j]` to hand from the longer tour A to tour B.
+
+    B takes the part between `B[ib]` and `B[ib + 1]`; A joins `A[i - 1]` and
+    `A[j + 1]` directly. The points of the part stay visited, so the coverage
+    cannot break: this move only trades length. Returns `(peak, i, j, ib)`
+    with the least `peak = max(new A, new B)`, or peak = -1 if none is below
+    `la`.
+    """
+    n = A.shape[0]
+    nb = B.shape[0]
+    # A grid over the points of B, for "which point of B is near here".
+    x0 = min(A[:, 0].min(), B[:, 0].min())
+    y0 = min(A[:, 1].min(), B[:, 1].min())
+    gx = (max(A[:, 0].max(), B[:, 0].max()) - x0) // reach + 1
+    gy = (max(A[:, 1].max(), B[:, 1].max()) - y0) // reach + 1
+    head = np.full(gx * gy, -1, dtype=np.int64)
+    nxt = np.empty(nb, dtype=np.int64)
+    for t in range(nb):
+        c = ((B[t, 1] - y0) // reach) * gx + (B[t, 0] - x0) // reach
+        nxt[t] = head[c]
+        head[c] = t
+    want = (la - lb) // 2
+    lo = max(2, want // 4)
+    hi = max(lo + 1, min(n - 4, 2 * want))
+    best = -1
+    bi = 0
+    bj = 0
+    bb = 0
+    i = 1
+    while i < n - 3:
+        # The point of B nearest to A[i], among the cells around it.
+        cx = (A[i, 0] - x0) // reach
+        cy = (A[i, 1] - y0) // reach
+        near = -1
+        dist = 1 << 60
+        for yy in range(max(cy - 1, 0), min(cy + 2, gy)):
+            for xx in range(max(cx - 1, 0), min(cx + 2, gx)):
+                t = head[yy * gx + xx]
+                while t >= 0:
+                    d = abs(B[t, 0] - A[i, 0]) + abs(B[t, 1] - A[i, 1])
+                    if d < dist:
+                        dist = d
+                        near = t
+                    t = nxt[t]
+        if near < 0 or dist > 2 * reach or dist == 0:
+            i += stride
+            continue
+        nb1 = near + 1 if near + 1 < nb else 0
+        for j in range(i + lo, min(n - 2, i + hi)):
+            m = j - i
+            back = abs(A[j, 0] - B[nb1, 0]) + abs(A[j, 1] - B[nb1, 1])
+            if back > 4 * reach or back == 0:
+                continue
+            join = abs(A[i - 1, 0] - A[j + 1, 0]) + abs(A[i - 1, 1] - A[j + 1, 1])
+            if join == 0:
+                continue
+            new_a = la - (m + 2) + join
+            new_b = lb + dist + m + back - 1
+            peak = max(new_a, new_b)
+            if peak < la and (best < 0 or peak < best):
+                best = peak
+                bi = i
+                bj = j
+                bb = near
+        i += stride
+    return best, bi, bj, bb
+
+
+@njit(cache=True)
+def _link(a, b, out, m, cnt, ox, oy):
+    """Append the points strictly between a and b (an L walk); count them in."""
+    buf = np.empty((abs(a[0] - b[0]) + abs(a[1] - b[1]) + 2, 2), dtype=np.int64)
+    k = _lwalk(a[0], a[1], b[0], b[1], True, buf, 0)
+    for t in range(k):
+        out[m, 0] = buf[t, 0]
+        out[m, 1] = buf[t, 1]
+        m += 1
+        for c in range(ox.shape[0]):
+            cnt[buf[t, 1] + oy[c], buf[t, 0] + ox[c]] += 1
+    return m
+
+
+@njit(cache=True)
+def _apply_transfer(A, B, i, j, ib, cnt, ox, oy):
+    """The two walks after the transfer; the new link points are counted in."""
+    n = A.shape[0]
+    nb = B.shape[0]
+    ib1 = ib + 1 if ib + 1 < nb else 0
+    new_a = np.empty((n + 2, 2), dtype=np.int64)
+    m = 0
+    for t in range(0, i):
+        new_a[m, 0] = A[t, 0]
+        new_a[m, 1] = A[t, 1]
+        m += 1
+    m = _link(A[i - 1], A[j + 1], new_a, m, cnt, ox, oy)
+    for t in range(j + 1, n):
+        new_a[m, 0] = A[t, 0]
+        new_a[m, 1] = A[t, 1]
+        m += 1
+    new_a = new_a[:m].copy()
+    size = nb + (j - i + 1) + abs(B[ib, 0] - A[i, 0]) + abs(B[ib, 1] - A[i, 1]) \
+        + abs(A[j, 0] - B[ib1, 0]) + abs(A[j, 1] - B[ib1, 1]) + 4
+    new_b = np.empty((size, 2), dtype=np.int64)
+    m = 0
+    for t in range(0, ib + 1):
+        new_b[m, 0] = B[t, 0]
+        new_b[m, 1] = B[t, 1]
+        m += 1
+    m = _link(B[ib], A[i], new_b, m, cnt, ox, oy)
+    for t in range(i, j + 1):
+        new_b[m, 0] = A[t, 0]
+        new_b[m, 1] = A[t, 1]
+        m += 1
+    m = _link(A[j], B[ib1], new_b, m, cnt, ox, oy)
+    for t in range(ib + 1, nb):
+        new_b[m, 0] = B[t, 0]
+        new_b[m, 1] = B[t, 1]
+        m += 1
+    return new_a, new_b[:m].copy()
+
+
+@njit(cache=True)
+def _find_exchange(A, B, la, lb, reach, most):
+    """The best swap of a part of A for a part of B (the longer tour is A).
+
+    A gives `A[i..j]` and takes `B[p..q]`, forward or reversed. Both tours
+    keep all points between them, so the coverage cannot break. The tours
+    must run side by side near both ends of the parts; such places come from
+    a grid over the points of B. Returns `(peak, i, j, p, q, reversed)`.
+    """
+    n = A.shape[0]
+    nb = B.shape[0]
+    x0 = min(A[:, 0].min(), B[:, 0].min())
+    y0 = min(A[:, 1].min(), B[:, 1].min())
+    gx = (max(A[:, 0].max(), B[:, 0].max()) - x0) // reach + 1
+    gy = (max(A[:, 1].max(), B[:, 1].max()) - y0) // reach + 1
+    head = np.full(gx * gy, -1, dtype=np.int64)
+    nxt = np.empty(nb, dtype=np.int64)
+    for t in range(nb):
+        c = ((B[t, 1] - y0) // reach) * gx + (B[t, 0] - x0) // reach
+        nxt[t] = head[c]
+        head[c] = t
+    # Places where A passes near B: (index in A, index in B).
+    stride = max(1, n // most)
+    pa = np.empty(n // stride + 2, dtype=np.int64)
+    pb = np.empty(n // stride + 2, dtype=np.int64)
+    count = 0
+    i = 2
+    while i < n - 2:
+        cx = (A[i, 0] - x0) // reach
+        cy = (A[i, 1] - y0) // reach
+        near = -1
+        dist = 1 << 60
+        for yy in range(max(cy - 1, 0), min(cy + 2, gy)):
+            for xx in range(max(cx - 1, 0), min(cx + 2, gx)):
+                t = head[yy * gx + xx]
+                while t >= 0:
+                    d = abs(B[t, 0] - A[i, 0]) + abs(B[t, 1] - A[i, 1])
+                    if d < dist and 2 <= t < nb - 2:
+                        dist = d
+                        near = t
+                    t = nxt[t]
+        if near >= 0 and dist <= 2 * reach:
+            pa[count] = i
+            pb[count] = near
+            count += 1
+        i += stride
+    best = -1
+    bi = bj = bp = bq = brev = 0
+    for k in range(count):
+        i = pa[k]
+        for l in range(k + 1, count):
+            j = pa[l]
+            if j - i < 2:
+                continue
+            if pb[k] < pb[l]:
+                p = pb[k]
+                q = pb[l]
+                rev = 0
+                d1 = abs(A[i - 1, 0] - B[p, 0]) + abs(A[i - 1, 1] - B[p, 1])
+                d2 = abs(B[q, 0] - A[j + 1, 0]) + abs(B[q, 1] - A[j + 1, 1])
+                d3 = abs(B[p - 1, 0] - A[i, 0]) + abs(B[p - 1, 1] - A[i, 1])
+                d4 = abs(A[j, 0] - B[q + 1, 0]) + abs(A[j, 1] - B[q + 1, 1])
+            elif pb[k] > pb[l]:
+                p = pb[l]
+                q = pb[k]
+                rev = 1
+                d1 = abs(A[i - 1, 0] - B[q, 0]) + abs(A[i - 1, 1] - B[q, 1])
+                d2 = abs(B[p, 0] - A[j + 1, 0]) + abs(B[p, 1] - A[j + 1, 1])
+                d3 = abs(B[p - 1, 0] - A[j, 0]) + abs(B[p - 1, 1] - A[j, 1])
+                d4 = abs(A[i, 0] - B[q + 1, 0]) + abs(A[i, 1] - B[q + 1, 1])
+            else:
+                continue
+            if d1 == 0 or d2 == 0 or d3 == 0 or d4 == 0:
+                continue
+            new_a = la - (j - i + 2) + (q - p) + d1 + d2
+            new_b = lb - (q - p + 2) + (j - i) + d3 + d4
+            peak = max(new_a, new_b)
+            if peak < la and (best < 0 or peak < best):
+                best = peak
+                bi = i
+                bj = j
+                bp = p
+                bq = q
+                brev = rev
+    return best, bi, bj, bp, bq, brev
+
+
+@njit(cache=True)
+def _apply_exchange(A, B, i, j, p, q, rev, cnt, ox, oy):
+    """The two walks after the swap; the four links are counted in."""
+    n = A.shape[0]
+    nb = B.shape[0]
+    new_a = np.empty((n + nb + 8 * (cnt.shape[0] + cnt.shape[1]), 2), dtype=np.int64)
+    new_b = np.empty((n + nb + 8 * (cnt.shape[0] + cnt.shape[1]), 2), dtype=np.int64)
+    m = 0
+    for t in range(0, i):
+        new_a[m, 0] = A[t, 0]
+        new_a[m, 1] = A[t, 1]
+        m += 1
+    first = q if rev else p
+    last = p if rev else q
+    m = _link(A[i - 1], B[first], new_a, m, cnt, ox, oy)
+    for s in range(q - p + 1):
+        t = q - s if rev else p + s
+        new_a[m, 0] = B[t, 0]
+        new_a[m, 1] = B[t, 1]
+        m += 1
+    m = _link(B[last], A[j + 1], new_a, m, cnt, ox, oy)
+    for t in range(j + 1, n):
+        new_a[m, 0] = A[t, 0]
+        new_a[m, 1] = A[t, 1]
+        m += 1
+    ma = m
+    m = 0
+    for t in range(0, p):
+        new_b[m, 0] = B[t, 0]
+        new_b[m, 1] = B[t, 1]
+        m += 1
+    first = j if rev else i
+    last = i if rev else j
+    m = _link(B[p - 1], A[first], new_b, m, cnt, ox, oy)
+    for s in range(j - i + 1):
+        t = j - s if rev else i + s
+        new_b[m, 0] = A[t, 0]
+        new_b[m, 1] = A[t, 1]
+        m += 1
+    m = _link(A[last], B[q + 1], new_b, m, cnt, ox, oy)
+    for t in range(q + 1, nb):
+        new_b[m, 0] = B[t, 0]
+        new_b[m, 1] = B[t, 1]
+        m += 1
+    return new_a[:ma].copy(), new_b[:m].copy()
+
+
 # -- driver -------------------------------------------------------------------
 
 
@@ -408,31 +680,34 @@ class Refiner:
         self.reg[ry0 - y0 : ry0 - y0 + rh, rx0 - x0 : rx0 - x0 + rw] = region_mask
         self.cnt = np.zeros(self.reg.shape, dtype=np.int32)
         self.ox, self.oy = ox, oy
-        # Row and column spans of the cutter, for the segment test.
+        # The runs of every cutter row and column, for the segment test.
         cx0, cy0 = int(ox.min()), int(oy.min())
         rows = int(oy.max()) - cy0 + 1
         cols = int(ox.max()) - cx0 + 1
-        rlo = np.full(rows, 1 << 30, dtype=np.int64)
-        rhi = np.full(rows, -(1 << 30), dtype=np.int64)
-        clo = np.full(cols, 1 << 30, dtype=np.int64)
-        chi = np.full(cols, -(1 << 30), dtype=np.int64)
-        for dx, dy in offsets:
-            rlo[dy - cy0] = min(rlo[dy - cy0], dx)
-            rhi[dy - cy0] = max(rhi[dy - cy0], dx)
-            clo[dx - cx0] = min(clo[dx - cx0], dy)
-            chi[dx - cx0] = max(chi[dx - cx0], dy)
-        # Rows and columns must be intervals for the segment test to be exact.
-        cells = set(offsets)
-        self.convex = all(
-            (dx, dy) in cells
-            for dy in range(cy0, cy0 + rows)
-            for dx in range(int(rlo[dy - cy0]), int(rhi[dy - cy0]) + 1)
-        ) and all(
-            (dx, dy) in cells
-            for dx in range(cx0, cx0 + cols)
-            for dy in range(int(clo[dx - cx0]), int(chi[dx - cx0]) + 1)
-        )
-        self.spans = (rlo, rhi, clo, chi, cy0, cx0)
+        shape = np.zeros((rows, cols), dtype=bool)
+        shape[oy - cy0, ox - cx0] = True
+
+        def runs_of(lines: np.ndarray, first: int) -> tuple[np.ndarray, np.ndarray]:
+            found = []
+            for line in lines:
+                edges = np.diff(np.concatenate(([0], line.astype(np.int8), [0])))
+                starts = np.flatnonzero(edges == 1) + first
+                ends = np.flatnonzero(edges == -1) - 1 + first
+                found.append(list(zip(starts.tolist(), ends.tolist())))
+            most = max(1, max(len(f) for f in found))
+            table = np.zeros((len(found), most, 2), dtype=np.int64)
+            count = np.zeros(len(found), dtype=np.int64)
+            for i, f in enumerate(found):
+                count[i] = len(f)
+                for j, (lo, hi) in enumerate(f):
+                    table[i, j] = (lo, hi)
+            return table, count
+
+        rrun, rcnt = runs_of(shape, cx0)
+        crun, ccnt = runs_of(shape.T, cy0)
+        # The reroute move is exact for every shape now; kept as a switch.
+        self.convex = True
+        self.spans = (rrun, rcnt, crun, ccnt, cy0, cx0)
         self.tours = [expand([(x - x0, y - y0) for x, y in p]) for p in paths]
         for P in self.tours:
             _stamp_all(self.cnt, P, ox, oy)
@@ -470,8 +745,60 @@ class Refiner:
         self.tours[t] = P
         return g1 + g2
 
+    def balance(self) -> bool:
+        """Trade work from a longer tour to a shorter one.
+
+        Two moves: hand over one part, or swap a part for a part of the other
+        tour. Neither can uncover a cell. A move is taken when the longer of
+        the two tours gets shorter; the longest tour is tried first, then the
+        next (work may have to pass through a tour in the middle).
+        """
+        lengths = self.lengths()
+        reach = max(2, int(max(np.abs(self.ox).max(), np.abs(self.oy).max())))
+        for a in sorted(range(len(lengths)), key=lambda t: -lengths[t]):
+            A = self.tours[a]
+            if len(A) < 16:
+                continue
+            best = None
+            for b in range(len(self.tours)):
+                B = self.tours[b]
+                if b == a or len(B) < 8 or lengths[a] - lengths[b] < 8:
+                    continue
+                stride = max(1, len(A) // 4000)
+                peak, i, j, ib = _find_transfer(A, B, lengths[a], lengths[b], reach, stride)
+                if peak >= 0 and (best is None or peak < best[0]):
+                    best = (int(peak), "give", b, (int(i), int(j), int(ib)))
+                peak, i, j, p, q, rev = _find_exchange(A, B, lengths[a], lengths[b], reach, 2500)
+                if peak >= 0 and (best is None or peak < best[0]):
+                    best = (int(peak), "swap", b, (int(i), int(j), int(p), int(q), int(rev)))
+            if best is None:
+                continue
+            _, kind, b, move = best
+            apply = _apply_transfer if kind == "give" else _apply_exchange
+            self.tours[a], self.tours[b] = apply(
+                A, self.tours[b], *move, self.cnt, self.ox, self.oy
+            )
+            return True
+        return False
+
     def run(self, deadline: float, rng: random.Random, max_segments: int = 4,
             drift: bool = False) -> None:
+        """Descend, then trade work between the tours and descend again."""
+        self.descend(deadline, rng, max_segments, drift=False)
+        if len(self.tours) > 1:
+            start = max(self.lengths())
+            saved = ([P.copy() for P in self.tours], self.cnt.copy())
+            for _ in range(300):
+                if time.perf_counter() >= deadline or not self.balance():
+                    break
+                self.descend(deadline, rng, max_segments, drift=False)
+            if max(self.lengths()) >= start:
+                self.tours, self.cnt = saved
+        if drift:
+            self.descend(deadline, rng, max_segments, drift=True)
+
+    def descend(self, deadline: float, rng: random.Random, max_segments: int = 4,
+                drift: bool = False) -> None:
         """Descend until no move gains; with `drift`, go on until the deadline.
 
         The drift phase also takes reroutes that gain nothing, at random. No
