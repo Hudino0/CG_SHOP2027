@@ -184,7 +184,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
 | `docs/PROMPT_FABLE.md` | The prompt for a long, rigorous solver session. |
 | `docs/revision_sistematica_literatura.pdf` | The literature review. It assumes a 1x1 cutter; the real cutters differ. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 15 sub-commands. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 16 sub-commands. |
 
 The pipeline writes into these directories. Git ignores them, except `instances/`.
 
@@ -643,6 +643,40 @@ uses the reroute move. The test read a variable of an earlier loop. The result
 was `False` for each cutter that is not a rectangle, and the reroute move was
 off. With the correct test, `cg27 polish` makes the tours of `fekete` 0.5 % to
 2.3 % shorter on the instances that I measured.
+
+### 5.11 The refiner, again
+
+Three changes make the refiner stronger. `docs/algoritmo.md` gives the
+reasons why each move keeps the solution valid.
+
+- **X-shaped cutters.** The reroute move tests if a segment sweeps a cell.
+  The test now uses the runs of each row and column of the cutter. It is
+  exact for a cutter with notches. Before, the move was off for the 52
+  contest instances with such a cutter. Measured: up to 10.6 % shorter.
+- **Drift.** When no move makes a tour shorter, the refiner applies reroutes
+  of equal length at random. A later move can then gain. A tour never becomes
+  longer.
+- **Trade between tours.** The longest tour gives a part to another tour, or
+  the two tours swap parts. All points stay visited, thus the coverage cannot
+  break. Measured: up to 4.8 % on the longest tour.
+
+`cg27 polish` runs the refiner on stored solutions: first on the coarse
+lattice, then on the fine lattice.
+
+### 5.12 Many short runs
+
+A run of 150 s is not better than a run of 30 s on a small instance. But a
+different seed or a different grid offset gives a different tour: the lengths
+differ by 1 % to 3 %. The command `cg27 grind` uses this:
+
+```bash
+cg27 grind --rounds 6 -j 4
+```
+
+Each round solves all instances with `fekete` (grid offset = round number)
+and with `lanes` (seed = round number), polishes the round, and copies the
+gains into the run `best`. The time limit grows with the instance size
+(`--time-limit` to `--time-max`).
 
 ## 6. What is next
 

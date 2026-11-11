@@ -106,9 +106,36 @@ levanta con el Lema 1.
 
 ### 3.4 Refinador (`solvers/refine.py`)
 
-Invariante: un contador guarda, por celda, cuántos puntos de los tours la
-barren. Un movimiento se acepta solo si ninguna celda de la región baja a
-cero. Así la factibilidad se conserva paso a paso.
+Estado: cada tour es su caminata paso a paso; un contador guarda, por celda,
+cuántos puntos de las caminatas la barren (con multiplicidad).
+
+**Invariante.** Toda celda de la región tiene contador `> 0`.
+
+Movimientos y por qué conservan el invariante:
+
+- **Atajo** y **reroute**: quitan puntos y ponen otros. Se aceptan solo si
+  ninguna celda de la región baja a cero. El reroute decide si un segmento
+  barre una celda con las rachas de cada fila y columna de la cortadora
+  (`_seg_covers`): el centro `x` barre la celda `q` por la racha `[lo, hi]`
+  si y solo si `q − x ∈ [lo, hi]`. La prueba es exacta para cualquier forma,
+  también para las cortadoras en X.
+- **Deriva**: un reroute de la misma longitud, elegido al azar. Mismo criterio
+  de cobertura; ningún tour se alarga.
+- **Ceder** y **permutar** entre tours (`_find_transfer`, `_find_exchange`):
+
+**Lema 9 (traspaso).** Sea `A[i..j]` un tramo del tour `A`. Si `A` une
+`A[i−1]` con `A[j+1]` por un camino cualquiera y otro tour `B` intercala
+`A[i..j]` entre dos de sus puntos consecutivos, uniendo los extremos por
+caminos cualesquiera, el conjunto de puntos visitados por todos los tours solo
+crece. La solución sigue siendo factible. Lo mismo vale si a cambio `A` recibe
+un tramo `B[p..q]`.
+
+*Demostración.* Todo punto de `A[i..j]` pasa a `B`; todo punto de `B[p..q]`
+pasa a `A`; los demás puntos siguen en su tour; los caminos de unión solo
+añaden puntos. La cobertura depende solo de la unión de los puntos. ∎
+
+El traspaso no acorta la suma: mueve longitud del tour más largo a otro, a
+cambio de las uniones. Se acepta si el mayor de los dos tours baja.
 
 ### 3.5 Red de seguridad
 
@@ -210,15 +237,43 @@ Observación 8 dice que con cortadoras casi cuadradas los extremos desalineados
 se pueden absorber con pasadas en escalera paralelas al borde; ese es el
 siguiente paso propuesto.
 
+## 5.1 Lo que probé y no sirvió (medido)
+
+Lo dejo escrito para no repetirlo.
+
+- **Más tiempo.** `fekete` y `lanes` con 150 s en vez de 30 s:
+  `bck2217_18k_1d6` 3 510 contra 3 504; `bgb4355_76k_2l3` 8 444 contra 8 444.
+  En instancias chicas la búsqueda se agota en segundos.
+- **Otra semilla / otro desplazamiento de rejilla.** Dispersión de 1 % a 3 %:
+  16 desplazamientos a 8 s en `bck2217_18k_1d6` dan 3 470 … 3 570. Por eso
+  `cg27 grind` lanza muchas corridas cortas y guarda la mejor.
+- **Pasadas paralelas al borde (cebolla).** Las regiones no son gordas: la
+  profundidad máxima es de 1 a 6 anchos de cortadora (`bck2217_18k_1d6`: 2.8;
+  `bnd7168_28k_1p7`: 1.0) y entre 6 % y 14 % de las celdas quedan fuera de
+  todo anillo. La estimación no baja de lo que ya hay.
+- **Franjas por columnas (PD de dos niveles).** Dar a cada columna vertical
+  su propia partición en franjas no baja el costo del modelo (entre −0.7 % y
+  +2.9 % en seis instancias).
+- **Re-optimización exacta de ventanas con CP-SAT** (paridad, cobertura,
+  conectividad por cortes). Ventanas de 12 × 12 puntos o más no cierran en
+  8 s; las de 8 × 8 se demuestran óptimas y ganan 4 de 3 576. La relajación es
+  tan floja como la cota de área.
+- **Óptimo exacto** de una instancia de 305 celdas: tras 900 s, CP-SAT deja
+  cota 40 y solución 214 (las heurísticas dan 92). No sirve de calibración.
+
+Lectura: el desperdicio principal es barrer fuera de la región (mediana
++26 % de área en las mejores soluciones; el solape es +6 %), y con rasgos del
+tamaño de la cortadora ese desperdicio es en buena parte estructural.
+
 ## 6. Qué es qué
 
 | Afirmación | Tipo |
 |---|---|
 | Lemas 1, 2, 2′; Teorema 3 (factibilidad) | Teorema |
 | Teoremas 4, 5, 7; Corolario 6 (cotas) | Teorema |
-| Observación 8 | Teorema |
+| Observación 8, Lema 9 | Teorema |
 | Partición en franjas óptima para su modelo de costo | Teorema (PD exacto) |
-| Enrutado de carriles, reparto entre `k`, refinado | Heurística |
+| Enrutado de carriles, reparto entre `k`, refinado, deriva, traspasos | Heurística (factibilidad por invariante) |
 | Piezas y búsqueda local de `fekete` | Heurística (cobertura comprobada) |
 | Garantía de aproximación | **No hay.** Solo brecha certificada por instancia |
 | Tablas de resultados | Empírico, con orden que las reproduce |
