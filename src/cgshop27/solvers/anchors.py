@@ -106,11 +106,45 @@ def _cover(region, cutter, lam):
     return out[:count]
 
 
+@njit(cache=True)
+def _prune(region, cutter, corners):
+    """Drop every stamp whose region cells all lie in another stamp too.
+
+    The stamps that spill most go first. Returns the mask of stamps to keep.
+    """
+    cells = np.argwhere(cutter)
+    count = np.zeros(region.shape, dtype=np.int32)
+    n = corners.shape[0]
+    spill = np.zeros(n, dtype=np.int64)
+    for i in range(n):
+        for c in range(cells.shape[0]):
+            y, x = corners[i, 0] + cells[c, 0], corners[i, 1] + cells[c, 1]
+            count[y, x] += 1
+            if not region[y, x]:
+                spill[i] += 1
+    keep = np.ones(n, dtype=np.bool_)
+    for i in np.argsort(-spill, kind="mergesort"):
+        needed = False
+        for c in range(cells.shape[0]):
+            y, x = corners[i, 0] + cells[c, 0], corners[i, 1] + cells[c, 1]
+            if region[y, x] and count[y, x] == 1:
+                needed = True
+                break
+        if needed:
+            continue
+        keep[i] = False
+        for c in range(cells.shape[0]):
+            count[corners[i, 0] + cells[c, 0], corners[i, 1] + cells[c, 1]] -= 1
+    return keep
+
+
 def anchors(region: CellSet, cutter: CellSet, lam: float) -> np.ndarray:
     """The anchors of the greedy cover, as zero-length lanes `(y, x, x)`."""
     pad = max(cutter.mask.shape)
     padded = np.pad(region.mask.astype(np.bool_), pad)
-    corners = _cover(padded, np.ascontiguousarray(cutter.mask.astype(np.bool_)), lam)
+    shape = np.ascontiguousarray(cutter.mask.astype(np.bool_))
+    corners = _cover(padded, shape, lam)
+    corners = corners[_prune(padded, shape, corners)]
     # A stamp corner is the center plus the cutter's origin.
     ys = corners[:, 0] - pad + region.origin[1] - cutter.origin[1]
     xs = corners[:, 1] - pad + region.origin[0] - cutter.origin[0]

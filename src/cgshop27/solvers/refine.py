@@ -656,6 +656,75 @@ def _apply_exchange(A, B, i, j, p, q, rev, cnt, ox, oy):
     return new_a[:ma].copy(), new_b[:m].copy()
 
 
+# -- large neighbourhood search: inject anchors, refine around them -----------
+
+
+@njit(cache=True)
+def _inject(P, pts, cnt, ox, oy):
+    """Visit every point of `pts` by a walk out and back from the nearest tour point.
+
+    The tour gets longer and sweeps more; the refiner then decides what to
+    keep. Returns the new walk; the new points are counted in.
+    """
+    n = P.shape[0]
+    total = n
+    for a in range(pts.shape[0]):
+        total += 2 * (np.abs(P[:, 0] - pts[a, 0]) + np.abs(P[:, 1] - pts[a, 1])).min() + 2
+    out = np.empty((total, 2), dtype=np.int64)
+    out[:n] = P
+    m = n
+    buf = np.empty((total, 2), dtype=np.int64)
+    for a in range(pts.shape[0]):
+        d = np.abs(out[:m, 0] - pts[a, 0]) + np.abs(out[:m, 1] - pts[a, 1])
+        i = int(np.argmin(d))
+        if d[i] == 0:
+            continue
+        k = _lwalk(out[i, 0], out[i, 1], pts[a, 0], pts[a, 1], True, buf, 0)
+        extra = 2 * k + 2
+        out[i + 1 + extra : m + extra] = out[i + 1 : m].copy()
+        pos = i + 1
+        for t in range(k):
+            out[pos] = buf[t]
+            pos += 1
+        out[pos, 0] = pts[a, 0]
+        out[pos, 1] = pts[a, 1]
+        pos += 1
+        for t in range(k - 1, -1, -1):
+            out[pos] = buf[t]
+            pos += 1
+        out[pos] = out[i]
+        for t in range(i + 1, i + 1 + extra):
+            for c in range(ox.shape[0]):
+                cnt[out[t, 1] + oy[c], out[t, 0] + ox[c]] += 1
+        m += extra
+    return out[:m].copy()
+
+
+@njit(cache=True)
+def _runs_in_box(P, x0, y0, x1, y1, margin):
+    """Index ranges `[a, b]` of the walk that pass through the box, widened by `margin`."""
+    n = P.shape[0]
+    out = np.empty((n // 2 + 2, 2), dtype=np.int64)
+    count = 0
+    i = 0
+    while i < n:
+        if x0 <= P[i, 0] <= x1 and y0 <= P[i, 1] <= y1:
+            a = i
+            while i < n and x0 <= P[i, 0] <= x1 and y0 <= P[i, 1] <= y1:
+                i += 1
+            lo = max(a - margin, 0)
+            hi = min(i - 1 + margin, n - 1)
+            if count > 0 and lo <= out[count - 1, 1]:
+                out[count - 1, 1] = hi
+            else:
+                out[count, 0] = lo
+                out[count, 1] = hi
+                count += 1
+        else:
+            i += 1
+    return out[:count]
+
+
 # -- driver -------------------------------------------------------------------
 
 
@@ -745,6 +814,95 @@ class Refiner:
         self.tours[t] = P
         return g1 + g2
 
+    def _local(self, box, window: int, max_segments: int, qmax: int) -> None:
+        """Shortcut and reroute on the parts of all tours that pass through `box`."""
+        x0, y0, x1, y1 = box
+        for t, P in enumerate(self.tours):
+            if len(P) < 8:
+                continue
+            runs = _runs_in_box(P, x0, y0, x1, y1, 4)
+            # From the back, so that earlier indices stay valid.
+            for a, b in runs[::-1]:
+                a, b = int(a), int(b)
+                if b - a < 3:
+                    continue
+                part = np.ascontiguousarray(P[a : b + 1])
+                part, _ = _shortcut_pass(part, self.cnt, self.reg, self.ox, self.oy, window)
+                if len(part) >= 4:
+                    steps = np.diff(part, axis=0)
+                    turn = np.flatnonzero(np.any(steps[1:] != steps[:-1], axis=1)) + 1
+                    corners = np.concatenate(([0], turn, [len(part) - 1])).astype(np.int64)
+                    part, _ = _reroute_pass(part, self.cnt, self.reg, self.ox, self.oy,
+                                            *self.spans, corners, max_segments, qmax,
+                                            self.pad // 2, 0)
+                P = np.concatenate([P[:a], part, P[b + 1 :]])
+            self.tours[t] = P
+
+    def lns(self, deadline: float, rng: random.Random, size: int | None = None,
+            lams=(0.3, 1.0, 2.5)) -> tuple[int, int]:
+        """Inject the anchors of a low-spill cover of a window, refine there, keep gains.
+
+        The window is drawn on the longest tour. Its region cells get a fresh
+        greedy cover (`anchors._cover`); the tour visits each new anchor by a
+        walk out and back; then shortcut and reroute run on every piece of
+        tour in the window. The step is kept if the longest tour got shorter,
+        or stayed and the total got shorter. Coverage holds throughout: the
+        injection only adds points, and the moves keep every cell swept.
+        Returns `(steps, kept)`.
+        """
+        from .anchors import _cover
+
+        shape = np.zeros((int(self.oy.max() - self.oy.min()) + 1,
+                          int(self.ox.max() - self.ox.min()) + 1), dtype=np.bool_)
+        shape[self.oy - self.oy.min(), self.ox - self.ox.min()] = True
+        cx0, cy0 = int(self.ox.min()), int(self.oy.min())
+        size = size or 4 * max(shape.shape)
+        border = max(shape.shape)
+        steps = kept = 0
+        while time.perf_counter() < deadline:
+            lengths = self.lengths()
+            t = max(range(len(lengths)), key=lengths.__getitem__)
+            P = self.tours[t]
+            if len(P) < 8:
+                break
+            px, py = P[rng.randrange(len(P))]
+            wx0 = max(int(px) - rng.randrange(size), 0)
+            wy0 = max(int(py) - rng.randrange(size), 0)
+            sub = self.reg[wy0 : wy0 + size, wx0 : wx0 + size]
+            if not sub.any():
+                continue
+            corners = _cover(np.pad(sub, border), shape, rng.choice(lams))
+            pts = np.empty((len(corners), 2), dtype=np.int64)
+            pts[:, 0] = corners[:, 1] - border + wx0 - cx0
+            pts[:, 1] = corners[:, 0] - border + wy0 - cy0
+            saved = ([Q for Q in self.tours], self.cnt.copy())
+            before = (max(lengths), sum(lengths))
+            # Each anchor joins the tour that passes nearest.
+            owner = np.zeros(len(pts), dtype=np.int64)
+            if len(self.tours) > 1:
+                near = np.stack([
+                    (np.abs(Q[:, None, 0] - pts[None, :, 0])
+                     + np.abs(Q[:, None, 1] - pts[None, :, 1])).min(axis=0)
+                    if len(Q) > 1 else np.full(len(pts), 1 << 40)
+                    for Q in self.tours
+                ])
+                owner = near.argmin(axis=0)
+            for u in range(len(self.tours)):
+                mine = pts[owner == u]
+                if len(mine):
+                    self.tours[u] = _inject(self.tours[u], mine, self.cnt, self.ox, self.oy)
+            box = (wx0 - 2 * border, wy0 - 2 * border,
+                   wx0 + size + 2 * border, wy0 + size + 2 * border)
+            for _ in range(3):
+                self._local(box, 64, 4, 4096)
+            now = self.lengths()
+            steps += 1
+            if (max(now), sum(now)) < before:
+                kept += 1
+            elif (max(now), sum(now)) > before:
+                self.tours, self.cnt = saved
+        return steps, kept
+
     def balance(self) -> bool:
         """Trade work from a longer tour to a shorter one.
 
@@ -781,21 +939,38 @@ class Refiner:
             return True
         return False
 
+    def _trade(self, deadline: float, rng: random.Random, max_segments: int) -> None:
+        """Balance the tours as long as the longest one gets shorter."""
+        if len(self.tours) < 2:
+            return
+        start = max(self.lengths())
+        saved = ([P.copy() for P in self.tours], self.cnt.copy())
+        for _ in range(300):
+            if time.perf_counter() >= deadline or not self.balance():
+                break
+            self.descend(deadline, rng, max_segments, drift=False)
+        if max(self.lengths()) >= start:
+            self.tours, self.cnt = saved
+
     def run(self, deadline: float, rng: random.Random, max_segments: int = 4,
             drift: bool = False) -> None:
-        """Descend, then trade work between the tours and descend again."""
+        """Descend and balance; with `drift`, search on until the deadline.
+
+        The long phase alternates the large neighbourhood search (`lns`), a
+        short drift, and the trades between tours. Every step keeps the
+        region covered and none makes the longest tour longer.
+        """
         self.descend(deadline, rng, max_segments, drift=False)
-        if len(self.tours) > 1:
-            start = max(self.lengths())
-            saved = ([P.copy() for P in self.tours], self.cnt.copy())
-            for _ in range(300):
-                if time.perf_counter() >= deadline or not self.balance():
-                    break
-                self.descend(deadline, rng, max_segments, drift=False)
-            if max(self.lengths()) >= start:
-                self.tours, self.cnt = saved
-        if drift:
-            self.descend(deadline, rng, max_segments, drift=True)
+        self._trade(deadline, rng, max_segments)
+        if not drift:
+            return
+        _seed_kernel(rng.randrange(1 << 30))
+        while (now := time.perf_counter()) < deadline:
+            left = deadline - now
+            self.lns(now + max(0.5, 0.2 * left), rng)
+            self.descend(min(deadline, time.perf_counter() + max(0.2, 0.03 * left)),
+                         rng, max_segments, drift=True)
+            self._trade(deadline, rng, max_segments)
 
     def descend(self, deadline: float, rng: random.Random, max_segments: int = 4,
                 drift: bool = False) -> None:
