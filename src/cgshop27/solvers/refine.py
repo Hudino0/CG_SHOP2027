@@ -656,6 +656,9 @@ def _apply_exchange(A, B, i, j, p, q, rev, cnt, ox, oy):
     return new_a[:ma].copy(), new_b[:m].copy()
 
 
+# The share of LNS steps that cut the tours inside the window first.
+RUIN_P = 0.5
+
 # -- large neighbourhood search: inject anchors, refine around them -----------
 
 
@@ -727,6 +730,37 @@ def _inject(P, runs, pts, cnt, ox, oy):
             if runs[r, 0] > i:
                 runs[r, 0] += extra
                 runs[r, 1] += extra
+    return out[:m].copy()
+
+
+@njit(cache=True)
+def _cut_runs(P, runs, cnt, ox, oy):
+    """Replace every part `runs[r]` of the walk by a direct L walk (the "ruin")."""
+    n = P.shape[0]
+    out = np.empty((n + 4, 2), dtype=np.int64)
+    buf = np.empty((n + 4, 2), dtype=np.int64)
+    m = 0
+    at = 0
+    for r in range(runs.shape[0]):
+        a, b = runs[r, 0], runs[r, 1]
+        if b - a < 2:
+            continue
+        for t in range(at, a + 1):
+            out[m] = P[t]
+            m += 1
+        for t in range(a + 1, b):
+            for c in range(ox.shape[0]):
+                cnt[P[t, 1] + oy[c], P[t, 0] + ox[c]] -= 1
+        k = _lwalk(P[a, 0], P[a, 1], P[b, 0], P[b, 1], True, buf, 0)
+        for t in range(k):
+            out[m] = buf[t]
+            m += 1
+            for c in range(ox.shape[0]):
+                cnt[buf[t, 1] + oy[c], buf[t, 0] + ox[c]] += 1
+        at = b
+    for t in range(at, n):
+        out[m] = P[t]
+        m += 1
     return out[:m].copy()
 
 
@@ -916,6 +950,7 @@ class Refiner:
             sub = self.reg[wy0 : wy0 + size, wx0 : wx0 + size]
             if not sub.any():
                 continue
+            ruin = rng.random() < RUIN_P
             # The greedy cover scans in raster order; scanning a mirrored or
             # transposed window gives a different cover of the same cells.
             padded, stamp = np.pad(sub, border), shape
@@ -946,6 +981,24 @@ class Refiner:
                      slice(max(wx0 - reach, 0), min(wx0 + size + reach, W)))
             saved = ([Q for Q in self.tours], self.cnt[patch].copy())
             before = (max(lengths), sum(lengths))
+            if ruin:
+                # Ruin: cut the tours short inside the window, then cover the
+                # cells that this leaves unswept (not the whole window).
+                for u, Q in enumerate(self.tours):
+                    if len(Q) > 8:
+                        inner = _runs_in_box(Q, wx0, wy0, wx0 + size, wy0 + size, 0)
+                        if len(inner):
+                            self.tours[u] = _cut_runs(Q, inner, self.cnt, self.ox, self.oy)
+                ry = slice(max(wy0 - border, 0), min(wy0 + size + border, H))
+                rx = slice(max(wx0 - border, 0), min(wx0 + size + border, W))
+                open_cells = self.reg[ry, rx] & (self.cnt[ry, rx] <= 0)
+                if open_cells.any():
+                    corners = _cover(np.pad(open_cells, border), shape, rng.choice(lams))
+                    pts = np.empty((len(corners), 2), dtype=np.int64)
+                    pts[:, 0] = corners[:, 1] - border + rx.start - cx0
+                    pts[:, 1] = corners[:, 0] - border + ry.start - cy0
+                else:
+                    pts = np.empty((0, 2), dtype=np.int64)
             # Each anchor joins the tour that passes nearest.
             runs = [_runs_in_box(Q, *box, 0) if len(Q) > 1 else np.zeros((0, 2), dtype=np.int64)
                     for Q in self.tours]
