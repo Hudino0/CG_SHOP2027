@@ -337,5 +337,6 @@ Otros dos cambios con efecto grande: el reroute exacto para cortadoras en X
 
 `cg27 verify --instances instances/competition --run <run>` escribe
 `out/verdicts.json` con objetivo, cota y brecha certificada por instancia.
-La tabla con tiempo y memoria por instancia (`cg27 report`) está pendiente.
+`cg27 report` escribe `out/results.csv` con objetivo, cota, brecha, tiempo y
+memoria por instancia.
 El resumen medido está en `docs/resultados.md`.
