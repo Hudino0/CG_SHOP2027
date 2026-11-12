@@ -569,7 +569,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     return 0 if all(r.feasible for r in results) else 1
 
 
-def _polish_worker(job: tuple[str, str, str, float, int]) -> tuple[str, int, int, str]:
+def _polish_worker(job: tuple[str, str, str, float, int, float]) -> tuple[str, int, int, str]:
     """Refine one stored solution on the instance's own lattice."""
     import random
     import time
@@ -581,7 +581,7 @@ def _polish_worker(job: tuple[str, str, str, float, int]) -> tuple[str, int, int
     from .solvers._tour import make_tour
     from .solvers.refine import Refiner
 
-    instance_path, solution_path, into, seconds, seed = job
+    instance_path, solution_path, into, seconds, seed, time_max = job
     from .solvers import scale
 
     instance = catalog.load(Path(instance_path))
@@ -597,6 +597,9 @@ def _polish_worker(job: tuple[str, str, str, float, int]) -> tuple[str, int, int
     # Stage 1, on the coarse lattice, while the tours still lie on it: the
     # same moves cost g * g times less there.
     g = scale.lattice_pitch(instance)
+    if time_max:
+        cells = len(catalog.region_cells(instance)) / g**2
+        seconds = min(time_max, seconds * max(1.0, cells / 30000))
     if g > 1:
         coarse, shift = scale.coarsen(instance, g)
         on_lattice = all(
@@ -635,7 +638,8 @@ def cmd_polish(args: argparse.Namespace) -> int:
     for solution_path in evaluate.run_solutions(args.run):
         uid = solution_path.name.removesuffix(config.SOLUTION_SUFFIX)
         if uid in index:
-            jobs.append((str(index[uid]), str(solution_path), into, args.time_limit, args.seed))
+            jobs.append((str(index[uid]), str(solution_path), into, args.time_limit, args.seed,
+                         args.time_max or 0.0))
     results = _map(_polish_worker, jobs, args.jobs, f"polishing {args.run}")
     gains = sorted(1 - after / before for _, before, after, _ in results if before)
     for uid, _, _, error in results:
@@ -768,7 +772,7 @@ def cmd_grind(args: argparse.Namespace) -> int:
                  "--time-limit", str(args.time_limit), "--time-max", str(args.time_max),
                  "--seed", str(number), "--isolate", "--memory-gb", str(args.memory_gb), *extra],
                 ["polish", *shared, "--run", run, "--time-limit", str(args.polish_limit),
-                 "--seed", str(number)],
+                 "--time-max", str(args.polish_max), "--seed", str(number)],
                 ["best", "--run", run, "--instances", suite],
             ]
             for step in steps:
@@ -976,6 +980,8 @@ def build_parser() -> argparse.ArgumentParser:
     polish.add_argument("--into", default=None, help="run to write (default: the same run)")
     polish.add_argument("--time-limit", type=float, default=20.0,
                         help="seconds per instance (default: 20)")
+    polish.add_argument("--time-max", type=float, default=None,
+                        help="let --time-limit grow with the instance size, up to this")
     polish.add_argument("--seed", type=int, default=0)
     polish.set_defaults(func=cmd_polish)
 
@@ -1006,7 +1012,8 @@ def build_parser() -> argparse.ArgumentParser:
     grind.add_argument("--first", type=int, default=1, help="number of the first round")
     grind.add_argument("--time-limit", type=float, default=8.0)
     grind.add_argument("--time-max", type=float, default=60.0)
-    grind.add_argument("--polish-limit", type=float, default=8.0)
+    grind.add_argument("--polish-limit", type=float, default=20.0)
+    grind.add_argument("--polish-max", type=float, default=120.0)
     grind.add_argument("--memory-gb", type=float, default=10.0)
     grind.set_defaults(func=cmd_grind)
 

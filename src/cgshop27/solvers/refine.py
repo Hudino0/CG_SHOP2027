@@ -856,10 +856,13 @@ class Refiner:
                           int(self.ox.max() - self.ox.min()) + 1), dtype=np.bool_)
         shape[self.oy - self.oy.min(), self.ox - self.ox.min()] = True
         cx0, cy0 = int(self.ox.min()), int(self.oy.min())
-        size = size or 4 * max(shape.shape)
         border = max(shape.shape)
+        fixed = size
         steps = kept = 0
         while time.perf_counter() < deadline:
+            # Windows of 2 to 6 cutter widths: small ones are fast, large ones
+            # can move a whole lane.
+            size = fixed or rng.choice((2, 3, 4, 6)) * border
             lengths = self.lengths()
             t = max(range(len(lengths)), key=lengths.__getitem__)
             P = self.tours[t]
