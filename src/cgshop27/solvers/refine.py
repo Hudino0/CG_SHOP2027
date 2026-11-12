@@ -916,10 +916,28 @@ class Refiner:
             sub = self.reg[wy0 : wy0 + size, wx0 : wx0 + size]
             if not sub.any():
                 continue
-            corners = _cover(np.pad(sub, border), shape, rng.choice(lams))
+            # The greedy cover scans in raster order; scanning a mirrored or
+            # transposed window gives a different cover of the same cells.
+            padded, stamp = np.pad(sub, border), shape
+            swap, flip_y, flip_x = rng.random() < 0.5, rng.random() < 0.5, rng.random() < 0.5
+            if swap:
+                padded, stamp = padded.T, stamp.T
+            if flip_y:
+                padded, stamp = padded[::-1], stamp[::-1]
+            if flip_x:
+                padded, stamp = padded[:, ::-1], stamp[:, ::-1]
+            corners = _cover(np.ascontiguousarray(padded), np.ascontiguousarray(stamp),
+                             rng.choice(lams))
+            cy, cx = corners[:, 0], corners[:, 1]
+            if flip_x:
+                cx = padded.shape[1] - stamp.shape[1] - cx
+            if flip_y:
+                cy = padded.shape[0] - stamp.shape[0] - cy
+            if swap:
+                cy, cx = cx, cy
             pts = np.empty((len(corners), 2), dtype=np.int64)
-            pts[:, 0] = corners[:, 1] - border + wx0 - cx0
-            pts[:, 1] = corners[:, 0] - border + wy0 - cy0
+            pts[:, 0] = cx - border + wx0 - cx0
+            pts[:, 1] = cy - border + wy0 - cy0
             box = (wx0 - 2 * border, wy0 - 2 * border,
                    wx0 + size + 2 * border, wy0 + size + 2 * border)
             # Everything a step can touch lies well inside this patch.
