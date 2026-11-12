@@ -185,7 +185,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
 | `docs/PROMPT_FABLE.md` | The prompt for a long, rigorous solver session. |
 | `docs/revision_sistematica_literatura.pdf` | The literature review. It assumes a 1x1 cutter; the real cutters differ. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 17 sub-commands. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 16 sub-commands. |
 
 The pipeline writes into these directories. Git ignores them, except `instances/`.
 
