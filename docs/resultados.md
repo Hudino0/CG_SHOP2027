@@ -85,3 +85,19 @@ cota de área es floja: la brecha alta no prueba que el tour sea malo.
 
 Brecha mediana por número de cortadoras: k = 1: 1.267, k = 2: 1.244,
 k = 3: 1.291.
+
+## Arranques nuevos después del pulido (medido, sin ganancia útil)
+
+```bash
+cg27 grind -j 4 --suite competition --solver anchors --first 5 --rounds 2 \
+     --time-limit 20 --time-max 240 --polish-limit 40 --polish-max 300
+```
+
+Dos rondas de `anchors` con semillas 5 y 6, cada una con su `polish`
+(4 h 17 min en total). Mejoraron unas 35 de las 250 instancias; la brecha
+mediana de `best` no cambió (1.268) y la mejora mediana contra `fekete`
+pasó de 7.65 % a 7.68 %. Conclusión empírica: con este vecindario, ni más
+pulido ni más arranques dan ya más de unas décimas. Para bajar más hace
+falta un movimiento nuevo (por ejemplo, rehacer la partición entre tours
+para k > 1 o un vecindario que mueva tramos largos) o una cota inferior
+mejor para saber cuánto margen queda.
