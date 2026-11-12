@@ -137,6 +137,44 @@ añaden puntos. La cobertura depende solo de la unión de los puntos. ∎
 El traspaso no acorta la suma: mueve longitud del tour más largo a otro, a
 cambio de las uniones. Se acepta si el mayor de los dos tours baja.
 
+### 3.4.1 Solver `anchors` (`solvers/anchors.py`)
+
+1. **Cubierta.** Se recorren las celdas de la región en orden de barrido. Para
+   la primera celda aún sin barrer se toma, entre los sellos (`C + p`) que la
+   contienen, el de mayor `celdas nuevas de la región − λ · celdas nuevas
+   fuera de la región`. Su centro `p` es un *ancla*. Se repite hasta que no
+   queda celda sin barrer.
+2. **Tour.** Las anclas son carriles de longitud cero para el enrutador de
+   `lanes`.
+3. **Refinado** (3.4), que aquí hace la mayor parte del trabajo.
+
+**Teorema 10 (factibilidad de `anchors`).** El paso 1 termina y `R` queda
+dentro de la unión de los sellos de las anclas; un tour que visita todas las
+anclas es factible.
+
+*Demostración.* Cada iteración barre al menos la celda que la motivó (todos
+los candidatos la contienen), así que el número de celdas sin barrer baja
+estrictamente y el proceso termina con cero. Las anclas son puntos del tour.
+La poda posterior (`_prune`) quita un sello solo si cada una de sus celdas de
+la región está en otro sello que se queda. ∎
+
+### 3.4.2 Búsqueda de vecindario grande (`Refiner.lns`)
+
+Un paso: (a) se elige una ventana sobre el tour más largo; (b) se calcula una
+cubierta nueva de las celdas de la región en la ventana (paso 1 de `anchors`,
+con `λ` al azar); (c) el tour que pasa más cerca visita cada ancla nueva con
+un camino de ida y vuelta; (d) atajo y reroute sobre todos los tramos de tour
+en la ventana; (e) el paso se conserva si el tour más largo bajó, o quedó
+igual y bajó la suma; si no, se restaura el estado.
+
+**Por qué conserva la factibilidad.** (c) solo añade puntos. (d) usa los
+movimientos de 3.4, que no dejan ninguna celda en cero. (e) restaura tours y
+contador. Como guarda extra, al final de cada llamada el contador se
+reconstruye desde los tours y, si alguna celda quedara sin barrer, se deshace
+la llamada entera.
+
+Es heurística: no hay garantía de mejora, solo de no empeorar.
+
 ### 3.5 Red de seguridad
 
 Nada de lo anterior se da por bueno sin comprobar: `cg27 solve`, `cg27 best` y
@@ -261,19 +299,36 @@ Lo dejo escrito para no repetirlo.
 - **Óptimo exacto** de una instancia de 305 celdas: tras 900 s, CP-SAT deja
   cota 40 y solución 214 (las heurísticas dan 92). No sirve de calibración.
 
-Lectura: el desperdicio principal es barrer fuera de la región (mediana
-+26 % de área en las mejores soluciones; el solape es +6 %), y con rasgos del
-tamaño de la cortadora ese desperdicio es en buena parte estructural.
+## 5.2 Lo que sí sirvió (medido)
+
+El desperdicio principal de `fekete` y `lanes` es barrer fuera de la región:
+mediana +26 % de área en sus mejores soluciones; el solape es +6 %. Una
+cubierta voraz por sellos que penaliza el desperdicio barre solo entre 2 % y
+7 % de más (`bck2217_18k_1d6`: 1.016 contra 1.116 del tour;
+`bnd7168_28k_1p7`: 1.053 contra 1.323). Ese desperdicio no es estructural.
+De ahí salen dos piezas:
+
+- **`anchors`** como tercer constructor. A 20 s y sin pulir, contra el mejor
+  ya pulido: `dca1389_49k_1x12` 5 024 contra 5 418, `fjs3649_17k_1x7` 3 274
+  contra 3 392, `srpg41087_15k_1d7` 4 710 contra 4 828. Pierde donde 20 s no
+  bastan al refinador y en algunas instancias con `k > 1`.
+- **LNS por inyección de anclas** sobre cualquier solución. `cg27 polish`,
+  40 s, sobre soluciones que ya eran las mejores y estaban pulidas:
+  `bck2217_18k_1d6` −2.12 %, `iso3713_144k_3l3` −4.27 %,
+  `fjs3649_17k_1x7` −3.60 %, `uniform00030001_94k_2x8` −1.14 %.
+
+Otros dos cambios con efecto grande: el reroute exacto para cortadoras en X
+(hasta −10.6 %) y el traspaso entre tours (hasta −4.8 % en el tour más largo).
 
 ## 6. Qué es qué
 
 | Afirmación | Tipo |
 |---|---|
-| Lemas 1, 2, 2′; Teorema 3 (factibilidad) | Teorema |
+| Lemas 1, 2, 2′; Teoremas 3 y 10 (factibilidad) | Teorema |
 | Teoremas 4, 5, 7; Corolario 6 (cotas) | Teorema |
 | Observación 8, Lema 9 | Teorema |
 | Partición en franjas óptima para su modelo de costo | Teorema (PD exacto) |
-| Enrutado de carriles, reparto entre `k`, refinado, deriva, traspasos | Heurística (factibilidad por invariante) |
+| Enrutado de carriles, reparto entre `k`, refinado, deriva, traspasos, LNS, cubierta de `anchors` | Heurística (factibilidad por invariante) |
 | Piezas y búsqueda local de `fekete` | Heurística (cobertura comprobada) |
 | Garantía de aproximación | **No hay.** Solo brecha certificada por instancia |
 | Tablas de resultados | Empírico, con orden que las reproduce |

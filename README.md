@@ -178,6 +178,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/_tour.py` | Converts waypoints into tours that the schema accepts. |
 | `src/cgshop27/solvers/scale.py` | Solves on the coarse lattice of an instance and lifts the tours. See 5.7. |
 | `src/cgshop27/solvers/lanes.py` | The strip solver: no blocks, any cutter width. See 5.8. |
+| `src/cgshop27/solvers/anchors.py` | The cover-first solver. See 5.13. |
 | `docs/algoritmo.md` | The statement, the proofs of feasibility and the lower bounds. |
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
 | `src/cgshop27/gridgraph.py` | Draws the block grid graph of the `fekete` solver. |
@@ -677,6 +678,36 @@ Each round solves all instances with `fekete` (grid offset = round number)
 and with `lanes` (seed = round number), polishes the round, and copies the
 gains into the run `best`. The time limit grows with the instance size
 (`--time-limit` to `--time-max`).
+
+### 5.13 The solver `anchors` and the large neighbourhood search
+
+`fekete` and `lanes` mow full blocks or full strips. At the border of the
+region a block or a strip mows much ground outside the region: the best tours
+of these solvers sweep 26 % more area than the region (median). A simple set
+of cutter positions can do better. A greedy cover that gives a penalty to
+each cell outside the region sweeps only 2 % to 7 % more.
+
+The solver `anchors` starts from that cover:
+
+1. It finds the cutter positions (the anchors).
+2. It makes a tour through the anchors, with the router of `lanes`.
+3. The refiner removes the anchors that the walk makes unnecessary.
+
+The refiner also got a new search that uses the same idea on a finished
+tour. One step: take a window on the longest tour, compute new anchors for
+the region cells in the window, let the tour visit each new anchor (out and
+back), and refine all parts of the tours in the window. Keep the step only if
+the longest tour is shorter. `cg27 polish` and `anchors` use this search
+until their time is over.
+
+`cg27 polish --coarse-into best_coarse` also keeps the result that still lies
+on the coarse lattice. A later polish continues from that result at low cost.
+
+```bash
+cg27 solve -j 4 --solver anchors --run anchors --time-limit 20 --time-max 180
+cg27 polish -j 4 --run best_coarse --into best --coarse-into best_coarse \
+     --time-limit 60 --time-max 600
+```
 
 ## 6. What is next
 
