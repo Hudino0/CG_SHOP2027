@@ -185,7 +185,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
 | `docs/PROMPT_FABLE.md` | The prompt for a long, rigorous solver session. |
 | `docs/revision_sistematica_literatura.pdf` | The literature review. It assumes a 1x1 cutter; the real cutters differ. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 16 sub-commands. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 17 sub-commands. |
 
 The pipeline writes into these directories. Git ignores them, except `instances/`.
 
@@ -236,21 +236,29 @@ cg27 campaign -j 4 --time-limit 30 --seed 0
 This command does the whole chain on the 250 contest instances:
 
 1. `cg27 index` writes the catalog.
-2. `cg27 solve` runs `boustrophedon`, `fekete` and `lanes`. Each instance
-   runs in its own process with a memory limit (`--isolate --memory-gb 10`).
-3. `cg27 best` copies the best verified solution of each instance into the
-   run `best`. This run **only improves**: a longer solution never replaces a
-   shorter one.
-4. `cg27 polish` refines the run `best` on the fine lattice and keeps only
-   the gains.
-5. `cg27 submit --run best --check competition` writes
+2. `cg27 solve` runs `boustrophedon`, and then `anchors`, `fekete` and
+   `lanes`. Each instance runs in its own process with a memory limit. The
+   time limit grows with the instance size, from `--time-limit` to
+   `--time-max`.
+3. `cg27 polish` refines each run. A result that is better than the stored
+   one goes into the run `best`. This run **only improves**: a longer solution
+   never replaces a shorter one. The result of the coarse stage goes into
+   `best_coarse`, for later polish runs.
+4. `cg27 submit --run best --check competition` writes
    `out/submission_best.zip`, reads it again and runs the official verifier.
-6. `cg27 report` writes `out/results.csv`: lower bound, objective, gap, time
+5. `cg27 report` writes `out/results.csv`: lower bound, objective, gap, time
    and memory for each instance and each run.
 
-Run it again with another `--seed` or a longer `--time-limit`: the run `best`
-keeps the best of all. The seeds are fixed, but the solvers stop on a time
-limit. Thus a faster machine can get a slightly better result.
+Then spend the remaining time on the search that still finds gains:
+
+```bash
+cg27 polish -j 4 --run best_coarse --into best --coarse-into best_coarse \
+     --time-limit 60 --time-max 600 --seed 1
+cg27 grind --rounds 3 --first 1
+```
+
+Run them again with another `--seed`. The seeds are fixed, but the solvers
+stop on a time limit. Thus a faster machine can get a slightly better result.
 
 ### Run all solvers and see the grid graph (one command)
 

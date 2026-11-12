@@ -741,15 +741,17 @@ def cmd_campaign(args: argparse.Namespace) -> int:
         shared += ["--filter", args.filter]
     steps = [["index", "-j", str(args.jobs), "--show", "0"]]
     steps.append(["solve", *shared, "--solver", "boustrophedon", "--run", "baseline"])
-    for solver in ("fekete", "lanes"):
-        steps.append([
-            "solve", *shared, "--solver", solver, "--run", f"{solver}_s{args.seed}",
-            "--time-limit", str(args.time_limit), "--seed", str(args.seed),
-            "--isolate", "--memory-gb", str(args.memory_gb),
-        ])
-    steps.append(["best", "--instances", suite])
-    steps.append(["polish", *shared, "--run", "best", "--time-limit", str(args.polish_limit),
-                  "--seed", str(args.seed)])
+    steps.append(["best", "--run", "baseline", "--instances", suite])
+    limits = ["--time-limit", str(args.time_limit), "--time-max", str(args.time_max)]
+    polish = ["--time-limit", str(args.polish_limit), "--time-max", str(args.polish_max),
+              "--seed", str(args.seed)]
+    for solver in ("anchors", "fekete", "lanes"):
+        run = f"{solver}_s{args.seed}"
+        steps.append(["solve", *shared, "--solver", solver, "--run", run, *limits,
+                      "--seed", str(args.seed), "--isolate", "--memory-gb", str(args.memory_gb)])
+        # Polish each run; gains go to `best`, on-lattice results to `best_coarse`.
+        steps.append(["polish", *shared, "--run", run, "--into", "best",
+                      "--coarse-into", "best_coarse", *polish])
     steps.append(["submit", "--run", "best", "--check", args.suite])
     steps.append(["report", "--suite", args.suite])
     for step in steps:
@@ -1008,8 +1010,11 @@ def build_parser() -> argparse.ArgumentParser:
     campaign.add_argument("-j", "--jobs", type=int, default=4)
     campaign.add_argument("--time-limit", type=float, default=30.0,
                           help="seconds per instance and solver (default: 30)")
-    campaign.add_argument("--polish-limit", type=float, default=20.0,
-                          help="seconds per instance for the final refinement")
+    campaign.add_argument("--time-max", type=float, default=180.0,
+                          help="the time limit grows with the instance size up to this")
+    campaign.add_argument("--polish-limit", type=float, default=60.0,
+                          help="seconds per instance for the refinement of each run")
+    campaign.add_argument("--polish-max", type=float, default=600.0)
     campaign.add_argument("--memory-gb", type=float, default=10.0,
                           help="memory limit per worker (default: 10)")
     campaign.add_argument("--seed", type=int, default=0)
