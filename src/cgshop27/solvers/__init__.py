@@ -1,5 +1,6 @@
 """Solvers. Each exposes `solve(instance, **kwargs) -> CGSHOP2027Solution`."""
 
+from .anchors import solve as _anchors
 from .boustrophedon import solve as boustrophedon
 from .fekete import solve as _fekete
 from .lanes import solve as _lanes
@@ -13,6 +14,9 @@ fekete = scaled(_fekete, max_width=7)
 # Lanes have no blocks: the instance's own lattice is enough, at any width.
 lanes = scaled(_lanes)
 
-SOLVERS = {"boustrophedon": boustrophedon, "fekete": fekete, "lanes": lanes}
+# Anchors: a low-spill cover by stamps first, then a tour, then the refiner.
+anchors = scaled(_anchors)
 
-__all__ = ["SOLVERS", "boustrophedon", "fekete", "lanes", "scaled"]
+SOLVERS = {"boustrophedon": boustrophedon, "fekete": fekete, "lanes": lanes, "anchors": anchors}
+
+__all__ = ["SOLVERS", "anchors", "boustrophedon", "fekete", "lanes", "scaled"]

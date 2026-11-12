@@ -759,7 +759,9 @@ def cmd_grind(args: argparse.Namespace) -> int:
     if args.filter:
         shared += ["--filter", args.filter]
     for number in range(args.first, args.first + args.rounds):
-        for solver, extra in (("fekete", ["-O", f"shift={number}"]), ("lanes", [])):
+        plan = {"anchors": [], "fekete": ["-O", f"shift={number}"], "lanes": []}
+        for solver in args.solver or list(plan):
+            extra = plan[solver]
             run = f"round_{solver}"
             steps = [
                 ["solve", *shared, "--solver", solver, "--run", run, "--clean",
@@ -999,6 +1001,8 @@ def build_parser() -> argparse.ArgumentParser:
     grind.add_argument("--filter", default=None)
     grind.add_argument("-j", "--jobs", type=int, default=4)
     grind.add_argument("--rounds", type=int, default=1)
+    grind.add_argument("--solver", action="append", choices=("anchors", "fekete", "lanes"),
+                       default=None, help="solver of each round (repeat it; default: all)")
     grind.add_argument("--first", type=int, default=1, help="number of the first round")
     grind.add_argument("--time-limit", type=float, default=8.0)
     grind.add_argument("--time-max", type=float, default=60.0)
