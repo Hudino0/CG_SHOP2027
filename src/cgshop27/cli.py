@@ -569,7 +569,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
     return 0 if all(r.feasible for r in results) else 1
 
 
-def _polish_worker(job: tuple[str, str, str, float, int, float]) -> tuple[str, int, int, str]:
+def _polish_worker(job: tuple) -> tuple[str, int, int, str]:
     """Refine one stored solution on the instance's own lattice."""
     import random
     import time
@@ -581,7 +581,7 @@ def _polish_worker(job: tuple[str, str, str, float, int, float]) -> tuple[str, i
     from .solvers._tour import make_tour
     from .solvers.refine import Refiner
 
-    instance_path, solution_path, into, seconds, seed, time_max = job
+    instance_path, solution_path, into, seconds, seed, time_max, coarse_into = job
     from .solvers import scale
 
     instance = catalog.load(Path(instance_path))
@@ -609,14 +609,26 @@ def _polish_worker(job: tuple[str, str, str, float, int, float]) -> tuple[str, i
             small = [[((x - shift[0]) // g, (y - shift[1]) // g) for x, y in path] for path in paths]
             refiner = Refiner(coarse.region.mask, coarse.region.origin,
                               list(coarse.cutter.cells()), small)
-            refiner.run(began + seconds / 2, rng, drift=True)
+            refiner.run(began + 0.75 * seconds, rng, drift=True)
             paths = [[(g * x + shift[0], g * y + shift[1]) for x, y in path]
                      for path in refiner.paths()]
+            if coarse_into:
+                # Keep the result that still lies on the coarse lattice: a
+                # later polish can go on from it at the low cost of stage 1.
+                tours = list(solution.tours)
+                for i, path in zip(moving, paths):
+                    tours[i] = make_tour(path)
+                staged = CGSHOP2027Solution(instance_uid=solution.instance_uid, tours=tours,
+                                            meta={**solution.meta, "stage": "coarse"})
+                if not check_for_errors(instance, staged):
+                    evaluate.keep_best(staged, coarse_into)
 
     # Stage 2, on the instance's own lattice.
     region, cutter = catalog.region_cells(instance), catalog.cutter_cells(instance)
     refiner = Refiner(region.mask, region.origin, list(cutter.cells()), paths)
     refiner.run(began + seconds, rng, drift=True)
+    if g == 1 and coarse_into:
+        coarse_into, into = None, [into, coarse_into]
     tours = list(solution.tours)
     for i, path in zip(moving, refiner.paths()):
         tours[i] = make_tour(path)
@@ -625,7 +637,8 @@ def _polish_worker(job: tuple[str, str, str, float, int, float]) -> tuple[str, i
     errors = check_for_errors(instance, candidate)
     if errors:
         return instance.instance_uid, before, before, errors[0]
-    evaluate.keep_best(candidate, into)
+    for run in into if isinstance(into, list) else [into]:
+        evaluate.keep_best(candidate, run)
     return instance.instance_uid, before, candidate.max_tour_length, ""
 
 
@@ -639,7 +652,7 @@ def cmd_polish(args: argparse.Namespace) -> int:
         uid = solution_path.name.removesuffix(config.SOLUTION_SUFFIX)
         if uid in index:
             jobs.append((str(index[uid]), str(solution_path), into, args.time_limit, args.seed,
-                         args.time_max or 0.0))
+                         args.time_max or 0.0, args.coarse_into))
     results = _map(_polish_worker, jobs, args.jobs, f"polishing {args.run}")
     gains = sorted(1 - after / before for _, before, after, _ in results if before)
     for uid, _, _, error in results:
@@ -771,9 +784,9 @@ def cmd_grind(args: argparse.Namespace) -> int:
                 ["solve", *shared, "--solver", solver, "--run", run, "--clean",
                  "--time-limit", str(args.time_limit), "--time-max", str(args.time_max),
                  "--seed", str(number), "--isolate", "--memory-gb", str(args.memory_gb), *extra],
-                ["polish", *shared, "--run", run, "--time-limit", str(args.polish_limit),
+                ["polish", *shared, "--run", run, "--into", "best",
+                 "--coarse-into", "best_coarse", "--time-limit", str(args.polish_limit),
                  "--time-max", str(args.polish_max), "--seed", str(number)],
-                ["best", "--run", run, "--instances", suite],
             ]
             for step in steps:
                 print(f"\n== round {number}: cg27 {' '.join(step)}", flush=True)
@@ -982,6 +995,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="seconds per instance (default: 20)")
     polish.add_argument("--time-max", type=float, default=None,
                         help="let --time-limit grow with the instance size, up to this")
+    polish.add_argument("--coarse-into", default=None,
+                        help="also keep the result of the coarse stage in this run")
     polish.add_argument("--seed", type=int, default=0)
     polish.set_defaults(func=cmd_polish)
 

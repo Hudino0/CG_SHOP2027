@@ -660,24 +660,49 @@ def _apply_exchange(A, B, i, j, p, q, rev, cnt, ox, oy):
 
 
 @njit(cache=True)
-def _inject(P, pts, cnt, ox, oy):
+def _nearest(P, runs, pts, dist):
+    """For every point of `pts` the distance to the nearest walk point in `runs`."""
+    for a in range(pts.shape[0]):
+        best = 1 << 40
+        for r in range(runs.shape[0]):
+            for t in range(runs[r, 0], runs[r, 1] + 1):
+                d = abs(P[t, 0] - pts[a, 0]) + abs(P[t, 1] - pts[a, 1])
+                if d < best:
+                    best = d
+        dist[a] = best
+
+
+@njit(cache=True)
+def _inject(P, runs, pts, cnt, ox, oy):
     """Visit every point of `pts` by a walk out and back from the nearest tour point.
 
-    The tour gets longer and sweeps more; the refiner then decides what to
-    keep. Returns the new walk; the new points are counted in.
+    Only the parts `runs` of the walk (index ranges near the window) are
+    searched. The tour gets longer and sweeps more; the refiner then decides
+    what to keep. Returns the new walk; the new points are counted in.
     """
     n = P.shape[0]
-    total = n
-    for a in range(pts.shape[0]):
-        total += 2 * (np.abs(P[:, 0] - pts[a, 0]) + np.abs(P[:, 1] - pts[a, 1])).min() + 2
+    runs = runs.copy()
+    reach = np.empty(pts.shape[0], dtype=np.int64)
+    _nearest(P, runs, pts, reach)
+    total = n + 2 * int(reach.sum()) + 2 * pts.shape[0]
     out = np.empty((total, 2), dtype=np.int64)
     out[:n] = P
     m = n
-    buf = np.empty((total, 2), dtype=np.int64)
+    buf = np.empty((int(reach.max()) + 2, 2), dtype=np.int64)
     for a in range(pts.shape[0]):
-        d = np.abs(out[:m, 0] - pts[a, 0]) + np.abs(out[:m, 1] - pts[a, 1])
-        i = int(np.argmin(d))
-        if d[i] == 0:
+        best = 1 << 40
+        i = -1
+        where = 0
+        for r in range(runs.shape[0]):
+            for t in range(runs[r, 0], runs[r, 1] + 1):
+                d = abs(out[t, 0] - pts[a, 0]) + abs(out[t, 1] - pts[a, 1])
+                if d < best:
+                    best = d
+                    i = t
+                    where = r
+        if i < 0 or best == 0 or best > reach[a]:
+            # Earlier detours only bring the tour closer, so this cannot
+            # happen; the guard keeps the buffer sizes honest.
             continue
         k = _lwalk(out[i, 0], out[i, 1], pts[a, 0], pts[a, 1], True, buf, 0)
         extra = 2 * k + 2
@@ -697,6 +722,11 @@ def _inject(P, pts, cnt, ox, oy):
             for c in range(ox.shape[0]):
                 cnt[out[t, 1] + oy[c], out[t, 0] + ox[c]] += 1
         m += extra
+        runs[where, 1] += extra
+        for r in range(runs.shape[0]):
+            if runs[r, 0] > i:
+                runs[r, 0] += extra
+                runs[r, 1] += extra
     return out[:m].copy()
 
 
@@ -838,17 +868,27 @@ class Refiner:
                 P = np.concatenate([P[:a], part, P[b + 1 :]])
             self.tours[t] = P
 
+    def _recount(self) -> None:
+        self.cnt[:] = 0
+        for P in self.tours:
+            _stamp_all(self.cnt, P, self.ox, self.oy)
+
     def lns(self, deadline: float, rng: random.Random, size: int | None = None,
             lams=(0.3, 1.0, 2.5)) -> tuple[int, int]:
         """Inject the anchors of a low-spill cover of a window, refine there, keep gains.
 
         The window is drawn on the longest tour. Its region cells get a fresh
-        greedy cover (`anchors._cover`); the tour visits each new anchor by a
-        walk out and back; then shortcut and reroute run on every piece of
-        tour in the window. The step is kept if the longest tour got shorter,
-        or stayed and the total got shorter. Coverage holds throughout: the
-        injection only adds points, and the moves keep every cell swept.
-        Returns `(steps, kept)`.
+        greedy cover (`anchors._cover`); the tour that passes nearest visits
+        each new anchor by a walk out and back; then shortcut and reroute run
+        on every piece of tour in the window. The step is kept if the longest
+        tour got shorter, or stayed and the total got shorter. Coverage holds
+        throughout: the injection only adds points, and the moves keep every
+        cell swept. Returns `(steps, kept)`.
+
+        A rejected step restores the counter in a box around the window. As
+        a guard against a change outside that box, the counter is rebuilt
+        from the tours at the end, and the whole call is undone if a cell
+        came out unswept.
         """
         from .anchors import _cover
 
@@ -859,6 +899,8 @@ class Refiner:
         border = max(shape.shape)
         fixed = size
         steps = kept = 0
+        entry = [Q for Q in self.tours]
+        H, W = self.reg.shape
         while time.perf_counter() < deadline:
             # Windows of 2 to 6 cutter widths: small ones are fast, large ones
             # can move a whole lane.
@@ -878,24 +920,27 @@ class Refiner:
             pts = np.empty((len(corners), 2), dtype=np.int64)
             pts[:, 0] = corners[:, 1] - border + wx0 - cx0
             pts[:, 1] = corners[:, 0] - border + wy0 - cy0
-            saved = ([Q for Q in self.tours], self.cnt.copy())
-            before = (max(lengths), sum(lengths))
-            # Each anchor joins the tour that passes nearest.
-            owner = np.zeros(len(pts), dtype=np.int64)
-            if len(self.tours) > 1:
-                near = np.stack([
-                    (np.abs(Q[:, None, 0] - pts[None, :, 0])
-                     + np.abs(Q[:, None, 1] - pts[None, :, 1])).min(axis=0)
-                    if len(Q) > 1 else np.full(len(pts), 1 << 40)
-                    for Q in self.tours
-                ])
-                owner = near.argmin(axis=0)
-            for u in range(len(self.tours)):
-                mine = pts[owner == u]
-                if len(mine):
-                    self.tours[u] = _inject(self.tours[u], mine, self.cnt, self.ox, self.oy)
             box = (wx0 - 2 * border, wy0 - 2 * border,
                    wx0 + size + 2 * border, wy0 + size + 2 * border)
+            # Everything a step can touch lies well inside this patch.
+            reach = 6 * border + 16
+            patch = (slice(max(wy0 - reach, 0), min(wy0 + size + reach, H)),
+                     slice(max(wx0 - reach, 0), min(wx0 + size + reach, W)))
+            saved = ([Q for Q in self.tours], self.cnt[patch].copy())
+            before = (max(lengths), sum(lengths))
+            # Each anchor joins the tour that passes nearest.
+            runs = [_runs_in_box(Q, *box, 0) if len(Q) > 1 else np.zeros((0, 2), dtype=np.int64)
+                    for Q in self.tours]
+            near = np.full((len(self.tours), len(pts)), 1 << 40, dtype=np.int64)
+            for u, Q in enumerate(self.tours):
+                if len(runs[u]):
+                    _nearest(Q, runs[u], pts, near[u])
+            owner = near.argmin(axis=0)
+            for u in range(len(self.tours)):
+                mine = pts[owner == u]
+                if len(mine) and len(runs[u]):
+                    self.tours[u] = _inject(self.tours[u], runs[u], mine, self.cnt,
+                                            self.ox, self.oy)
             for _ in range(3):
                 self._local(box, 64, 4, 4096)
             now = self.lengths()
@@ -903,7 +948,13 @@ class Refiner:
             if (max(now), sum(now)) < before:
                 kept += 1
             elif (max(now), sum(now)) > before:
-                self.tours, self.cnt = saved
+                self.tours = saved[0]
+                self.cnt[patch] = saved[1]
+        self._recount()
+        if self.uncovered():
+            self.tours = entry
+            self._recount()
+            return steps, 0
         return steps, kept
 
     def balance(self) -> bool:
