@@ -622,6 +622,7 @@ def _polish_worker(job: tuple) -> tuple[str, int, int, str]:
             refiner = Refiner(coarse.region.mask, coarse.region.origin,
                               list(coarse.cutter.cells()), small)
             refiner.set_price(price, coarse.region.origin)
+            refiner.comb = True
             refiner.run(began + 0.75 * seconds, rng, drift=True)
             paths = [[(g * x + shift[0], g * y + shift[1]) for x, y in path]
                      for path in refiner.paths()]
@@ -641,6 +642,7 @@ def _polish_worker(job: tuple) -> tuple[str, int, int, str]:
     refiner = Refiner(region.mask, region.origin, list(cutter.cells()), paths)
     fine = np.kron(price, np.ones((g, g))) / g
     refiner.set_price(fine[: region.mask.shape[0], : region.mask.shape[1]], region.origin)
+    refiner.comb = True
     refiner.run(began + seconds, rng, drift=True)
     if g == 1 and coarse_into:
         coarse_into, into = None, [into, coarse_into]
