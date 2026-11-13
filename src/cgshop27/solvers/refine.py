@@ -658,6 +658,8 @@ def _apply_exchange(A, B, i, j, p, q, rev, cnt, ox, oy):
 
 # The share of LNS steps that cut the tours inside the window first.
 RUIN_P = 0.5
+# Share of the ruin steps that cover with the best comb (`_comb_cover`).
+COMB_P = 0.5
 # Share of the LNS windows drawn by waste when the dual weights are known.
 GUIDED_P = 0.7
 
@@ -794,6 +796,42 @@ def _runs_in_box(P, x0, y0, x1, y1, margin):
 # -- driver -------------------------------------------------------------------
 
 
+def _comb_cover(cells: np.ndarray, ch: int, cw: int) -> np.ndarray:
+    """Stamp corners `(y, x)` of the cheapest comb over the cells to cover.
+
+    A comb is a set of parallel strips of the cutter's width with one lane
+    across each strip, from the first to the last cell of the strip. Its
+    cost is `sum over strips (extent - stamp + width)`: the lane plus the
+    connector to the next strip. Both orientations and every phase are
+    priced exactly, and the cheapest one is returned (`docs/fable_el_genio.md`,
+    Lemma A and Theorem B: lanes across a zone round only once).
+    """
+    best = None
+    for swap in (False, True):
+        grid = cells.T if swap else cells
+        sh, sw = (cw, ch) if swap else (ch, cw)
+        H, W = grid.shape
+        cols = np.flatnonzero(grid.any(axis=0))
+        if not len(cols):
+            continue
+        for phase in range(sw):
+            cost, found = 0, []
+            for x0 in range(int(cols[0]) - phase, int(cols[-1]) + 1, sw):
+                rows = np.flatnonzero(grid[:, max(x0, 0) : x0 + sw].any(axis=1))
+                if not len(rows):
+                    continue
+                lo, hi = int(rows[0]), int(rows[-1])
+                last = max(lo, hi - sh + 1)
+                cost += (last - lo) + sw
+                found.extend((y, x0) for y in range(lo, last, sh))
+                found.append((last, x0))
+            if best is None or cost < best[0]:
+                best = (cost, [(x, y) for y, x in found] if swap else found)
+    if best is None:
+        return np.empty((0, 2), dtype=np.int64)
+    return np.array(best[1], dtype=np.int64).reshape(-1, 2)
+
+
 class Refiner:
     """Holds the counter for all tours; improves them one move type at a time."""
 
@@ -850,6 +888,8 @@ class Refiner:
         # (`set_price`). With them `lns` draws its windows where the tours
         # walk more steps than the weights pay for.
         self.price: np.ndarray | None = None
+        # With `comb`, half of the ruin steps of `lns` cover with `_comb_cover`.
+        self.comb = False
 
     def set_price(self, weight: np.ndarray, origin: Point) -> None:
         """Give the weights `u` of `bounds.weights`; `origin` is the region origin."""
@@ -1035,7 +1075,17 @@ class Refiner:
                 rx = slice(max(wx0 - border, 0), min(wx0 + size + border, W))
                 open_cells = self.reg[ry, rx] & (self.cnt[ry, rx] <= 0)
                 if open_cells.any():
-                    corners = _cover(np.pad(open_cells, border), shape, rng.choice(lams))
+                    padded = np.pad(open_cells, border)
+                    first = np.empty((0, 2), dtype=np.int64)
+                    if self.comb and rng.random() < COMB_P:
+                        # The comb's stamps first; the greedy cover then takes
+                        # the cells that they leave (cutters that are not boxes).
+                        first = _comb_cover(open_cells, *shape.shape) + border
+                        for cy, cx in first:
+                            part = padded[cy : cy + shape.shape[0], cx : cx + shape.shape[1]]
+                            part &= ~shape[: part.shape[0], : part.shape[1]]
+                    corners = _cover(padded, shape, rng.choice(lams))
+                    corners = np.concatenate([first, corners]) if len(first) else corners
                     pts = np.empty((len(corners), 2), dtype=np.int64)
                     pts[:, 0] = corners[:, 1] - border + rx.start - cx0
                     pts[:, 1] = corners[:, 0] - border + ry.start - cy0
