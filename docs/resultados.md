@@ -1,7 +1,8 @@
 # Resultados medidos — 250 instancias de competencia
 
-Máquina: 4 núcleos, 15 GB. Estado: 12-nov-2026, después de tres rondas
-largas de `polish` (semillas 21, 22, 23).
+Máquina: 4 núcleos, 15 GB. Estado: 13-nov-2026, después de tres rondas
+largas de `polish` (semillas 21, 22, 23), dos rondas de arranques nuevos y
+la cota de área ponderada. Los archivos medidos están en `results/`.
 
 ## Cómo se regenera
 
@@ -21,27 +22,47 @@ cota, brecha, tiempo, memoria) queda en `out/results.csv`.
 
 ## Tabla general
 
+La brecha es objetivo ÷ mejor cota inferior demostrada. Desde el 13-nov la
+cota es el máximo de la cota de área y la **cota de área ponderada**
+(`docs/algoritmo.md`, Teorema 11; `cg27 bound`).
+
 | Run | Válidas | Brecha mín | Mediana | Máx | Puntaje local |
 |---|---|---|---|---|---|
-| `baseline` | 250/250 | 1.176 | 1.828 | 3.882 | 128.71 |
-| `fekete` (30 s) | 250/250 | 1.102 | 1.391 | 2.792 | 206.57 |
-| `lanes` (20 s) | 250/250 | 1.099 | 1.387 | 2.358 | 212.37 |
-| `round_anchors` (8–60 s) | 250/250 | 1.109 | 1.368 | 2.180 | — |
-| `best` (mejor por instancia + `polish` con LNS) | 250/250 | 1.075 | 1.268 | 2.053 | 250.00 |
+| `baseline` | 250/250 | 1.172 | 1.790 | 3.331 | 128.41 |
+| `fekete` (30 s) | 250/250 | 1.101 | 1.369 | 2.409 | 206.05 |
+| `lanes` (20 s) | 250/250 | 1.099 | 1.364 | 1.991 | 211.82 |
+| `best` (mejor por instancia + `polish` con LNS) | 250/250 | 1.073 | 1.241 | 1.722 | 250.00 |
 
-La brecha es objetivo ÷ cota inferior demostrada (`docs/algoritmo.md`, §4).
+Con solo la cota de área, `best` tenía brecha 1.075 / 1.268 / 2.053: los
+tours son los mismos, lo que mejoró es el certificado. 87 instancias tienen
+brecha certificada menor que 1.2 y 13 menor que 1.1.
+
 El puntaje local usa la fórmula del concurso, Σ (B/B_G)², con el mejor
-objetivo propio como referencia; 250 es el máximo. La fila de
-`round_anchors` es la de la primera ronda de `anchors` (su puntaje no se
-volvió a calcular contra el `best` final).
+objetivo propio como referencia; 250 es el máximo.
 
-`out/submission_best.zip` pasa el verificador oficial
+`results/submission_best.zip` pasa el verificador oficial
 (`cg27 submit --run best --check competition`): 250/250.
 
-Evolución de la brecha mediana de `best`: 1.361 (mejor de
-`fekete`/`lanes` + refinador) → 1.350 (una ronda de `grind`) → 1.310
-(`anchors` + LNS corto) → 1.280 → 1.272 → 1.268 (tres rondas largas de LNS;
-ganancia mediana por ronda 1.63 %, 0.44 %, 0.24 %: el pulido se satura).
+Evolución de la brecha mediana de `best` (contra la cota de área): 1.361
+(mejor de `fekete`/`lanes` + refinador) → 1.350 (una ronda de `grind`) →
+1.310 (`anchors` + LNS corto) → 1.280 → 1.272 → 1.268 (tres rondas largas de
+LNS; ganancia mediana por ronda 1.63 %, 0.44 %, 0.24 %: el pulido se satura).
+
+## La cota de área ponderada (medida en las 250)
+
+```bash
+cg27 bound -j 4      # 250 instancias, 4 núcleos; la más lenta 627 s
+```
+
+| | Mín | Mediana | Máx |
+|---|---|---|---|
+| Cota ponderada ÷ cota de área | 1.000 | 1.013 | 1.302 |
+| Lo que el óptimo del programa lineal añadiría aún | — | 0.19 % | 0.28 % |
+
+Sube en 235 de 250 instancias y nunca baja. La mejora es chica en la mediana
+(1.3 %) y grande en las regiones con rasgos finos (hasta 30 %): la brecha
+máxima baja de 2.053 a 1.722. La segunda fila sale de la cota superior dual:
+el método de primer orden deja menos de 0.3 % sin recoger.
 
 ## `best` contra `fekete` (longitud máxima, % más corta)
 
@@ -74,17 +95,18 @@ guarda el mejor por instancia.
 - `polish` largo: 60 s a 600 s por instancia, memoria máxima 1.10 GB.
 - Todo queda muy por debajo de 12 GB.
 
-## Instancias más flojas (brecha de `best`)
+## Instancias más flojas (brecha de `best`, cota nueva)
 
-`srpg41087_15k_1d7` 2.05, `iso3131_107k_2x10` 2.05, `smo64863_393k_3p6`
-2.04, `octa84581_128k_2l6` 2.02, `smo4975_26k_1p9` 2.02,
-`srpg5461_82k_1s11` 1.98.
+`smo4975_26k_1p9` 1.72, `smo64863_393k_3p6` 1.72, `srpg41087_15k_1d7` 1.72,
+`srpg5461_82k_1s11` 1.70, `srpg2991_27k_1l5` 1.69, `octa6025_3600k_3p12` 1.69.
 
-Son regiones tipo fractal, con rasgos más finos que la cortadora. Ahí la
-cota de área es floja: la brecha alta no prueba que el tour sea malo.
+Son regiones tipo fractal, con rasgos más finos que la cortadora. El tour ahí
+es casi un viajante sobre una nube de puntos. La cota no ve la conexión
+(ida y vuelta por pasillos finos), así que la brecha alta no prueba que el
+tour sea malo.
 
-Brecha mediana por número de cortadoras: k = 1: 1.267, k = 2: 1.244,
-k = 3: 1.291.
+Brecha mediana por número de cortadoras: k = 1: 1.233, k = 2: 1.238,
+k = 3: 1.264.
 
 ## Arranques nuevos después del pulido (medido, sin ganancia útil)
 
