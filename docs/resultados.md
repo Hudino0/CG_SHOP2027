@@ -133,3 +133,19 @@ instancia: 220/250 instancias más cortas, ganancia mediana 0.19 %, máxima
 Es del mismo orden que la ronda anterior sin estos movimientos (0.24 %): la
 búsqueda local está saturada, y la mejora siguiente pide un constructor nuevo
 (Conjetura C en `docs/fable_el_genio.md`).
+
+## Constructor `zigzag` (docs/algoritmo.md §4.5)
+
+`cg27 solve --solver zigzag` (30–120 s) sobre las 250, después `polish`
+(40–300 s) en la corrida `zzp`, después `cg27 best --run zzp --into best`.
+
+| Corrida | Resueltas | Brecha mín | mediana | máx |
+|---|---|---|---|---|
+| `zzp` (`zigzag` + una ronda de `polish`) | 250/250 | 1.074 | 1.285 | 1.816 |
+| `best` después de la fusión | 250/250 | 1.069 | 1.237 | 1.716 |
+
+`zzp` mejora a `best` en 18 instancias (0.04 % a 2.62 %; las mayores:
+`octa29860_979k_3p10` 2.62 %, `srpg115_908k_3l9` 2.23 %,
+`isoa22945_6183k_3l3` 1.93 %, `iso299_928k_3l6` 1.44 %). En las otras 232
+queda por encima (mediana +3.0 %): `best` lleva cinco rondas de pulido y
+`zzp` una. Ninguna instancia empeora. La mediana de `best` no cambia.
