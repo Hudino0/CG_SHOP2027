@@ -658,6 +658,8 @@ def _apply_exchange(A, B, i, j, p, q, rev, cnt, ox, oy):
 
 # The share of LNS steps that cut the tours inside the window first.
 RUIN_P = 0.5
+# Share of the LNS windows drawn by waste when the dual weights are known.
+GUIDED_P = 0.7
 
 # -- large neighbourhood search: inject anchors, refine around them -----------
 
@@ -844,6 +846,36 @@ class Refiner:
         self.tours = [expand([(x - x0, y - y0) for x, y in p]) for p in paths]
         for P in self.tours:
             _stamp_all(self.cnt, P, ox, oy)
+        # Dual weights of the weighted area bound, on the refiner's grid
+        # (`set_price`). With them `lns` draws its windows where the tours
+        # walk more steps than the weights pay for.
+        self.price: np.ndarray | None = None
+
+    def set_price(self, weight: np.ndarray, origin: Point) -> None:
+        """Give the weights `u` of `bounds.weights`; `origin` is the region origin."""
+        self.price = np.zeros(self.reg.shape, dtype=np.float64)
+        y0, x0 = origin[1] - self.origin[1], origin[0] - self.origin[0]
+        self.price[y0 : y0 + weight.shape[0], x0 : x0 + weight.shape[1]] = weight
+
+    def _waste(self, block: int) -> np.ndarray:
+        """Steps minus weight per block, summed over the 3 x 3 blocks around.
+
+        By the theorem in `bounds`, a walk of `n` steps sweeps weight at most
+        `n` (plus one stamp). So `steps - weight` of a zone counts the steps
+        there that the bound does not ask for: the waste of the zone.
+        """
+        H, W = self.reg.shape
+        rows, cols = -(-H // block), -(-W // block)
+        steps = np.zeros((rows, cols))
+        for P in self.tours:
+            if len(P) > 1:
+                np.add.at(steps, (P[:, 1] // block, P[:, 0] // block), 1.0)
+        padded = np.zeros((rows * block, cols * block))
+        padded[:H, :W] = self.price
+        waste = np.pad(steps - padded.reshape(rows, block, cols, block).sum(axis=(1, 3)), 1)
+        around = sum(waste[1 + dy : 1 + dy + rows, 1 + dx : 1 + dx + cols]
+                     for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        return np.maximum(around, 0.0)
 
     def lengths(self) -> list[int]:
         return [len(P) if len(P) > 1 else 0 for P in self.tours]
@@ -935,7 +967,10 @@ class Refiner:
         steps = kept = 0
         entry = [Q for Q in self.tours]
         H, W = self.reg.shape
+        waste, refresh = None, 0
         while time.perf_counter() < deadline:
+            if self.price is not None and steps >= refresh:
+                waste, refresh = self._waste(border), steps + 256
             # Windows of 2 to 6 cutter widths: small ones are fast, large ones
             # can move a whole lane.
             size = fixed or rng.choice((2, 3, 4, 6)) * border
@@ -944,7 +979,14 @@ class Refiner:
             P = self.tours[t]
             if len(P) < 8:
                 break
-            px, py = P[rng.randrange(len(P))]
+            if waste is not None and rng.random() < GUIDED_P:
+                # A point of the longest tour, drawn in proportion to the
+                # waste of its zone.
+                chance = np.cumsum(waste[P[:, 1] // border, P[:, 0] // border] + 1e-9)
+                at = int(np.searchsorted(chance, rng.random() * chance[-1]))
+                px, py = P[min(at, len(P) - 1)]
+            else:
+                px, py = P[rng.randrange(len(P))]
             wx0 = max(int(px) - rng.randrange(size), 0)
             wy0 = max(int(py) - rng.randrange(size), 0)
             sub = self.reg[wy0 : wy0 + size, wx0 : wx0 + size]

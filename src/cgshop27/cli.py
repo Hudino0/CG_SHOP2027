@@ -27,6 +27,8 @@ import zipfile
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+import numpy as np
+
 from . import catalog, config, evaluate, gallery
 from .solvers import SOLVERS
 
@@ -600,6 +602,16 @@ def _polish_worker(job: tuple) -> tuple[str, int, int, str]:
     if time_max:
         cells = len(catalog.region_cells(instance)) / g**2
         seconds = min(time_max, seconds * max(1.0, cells / 30000))
+    # The dual weights of the weighted area bound tell the search where the
+    # tours waste steps (`Refiner.set_price`). A short solve is enough here.
+    from .bounds import weights as dual_weights
+
+    base, _ = scale.coarsen(instance, g)
+    price, _ = dual_weights(
+        base.region.mask.astype(bool),
+        catalog.orthoconvex_hull(base.cutter).mask.astype(bool),
+        iterations=2000, deadline=began + 0.05 * seconds,
+    )
     if g > 1:
         coarse, shift = scale.coarsen(instance, g)
         on_lattice = all(
@@ -609,6 +621,7 @@ def _polish_worker(job: tuple) -> tuple[str, int, int, str]:
             small = [[((x - shift[0]) // g, (y - shift[1]) // g) for x, y in path] for path in paths]
             refiner = Refiner(coarse.region.mask, coarse.region.origin,
                               list(coarse.cutter.cells()), small)
+            refiner.set_price(price, coarse.region.origin)
             refiner.run(began + 0.75 * seconds, rng, drift=True)
             paths = [[(g * x + shift[0], g * y + shift[1]) for x, y in path]
                      for path in refiner.paths()]
@@ -626,6 +639,8 @@ def _polish_worker(job: tuple) -> tuple[str, int, int, str]:
     # Stage 2, on the instance's own lattice.
     region, cutter = catalog.region_cells(instance), catalog.cutter_cells(instance)
     refiner = Refiner(region.mask, region.origin, list(cutter.cells()), paths)
+    fine = np.kron(price, np.ones((g, g))) / g
+    refiner.set_price(fine[: region.mask.shape[0], : region.mask.shape[1]], region.origin)
     refiner.run(began + seconds, rng, drift=True)
     if g == 1 and coarse_into:
         coarse_into, into = None, [into, coarse_into]
@@ -665,6 +680,48 @@ def cmd_polish(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_bounds() -> dict[str, int]:
+    """The weighted bounds of `cg27 bound`, when `out/bounds.csv` is there."""
+    path = config.OUT / "bounds.csv"
+    if not path.is_file():
+        return {}
+    with path.open(newline="", encoding="utf-8") as handle:
+        return {row["instance_uid"]: int(row["weighted_bound"]) for row in csv.DictReader(handle)}
+
+
+def _bound_worker(job: tuple[str, int, float]) -> dict:
+    from .bounds import weighted_bound
+
+    path, iterations, limit = job
+    return weighted_bound(catalog.load(Path(path)), iterations, limit)
+
+
+def cmd_bound(args: argparse.Namespace) -> int:
+    """The weighted area bound of every instance -> out/bounds.csv."""
+    config.ensure_dirs()
+    paths = _select(catalog.instance_paths(Path(args.instances)), args.filter, args.limit)
+    jobs = [(str(p), args.iterations, args.time_limit) for p in paths]
+    rows = _map(_bound_worker, jobs, args.jobs, "bounds")
+    target = config.OUT / "bounds.csv"
+    known = {}
+    if target.is_file():
+        with target.open(newline="", encoding="utf-8") as handle:
+            known = {row["instance_uid"]: row for row in csv.DictReader(handle)}
+    for row in rows:
+        old = known.get(row["instance_uid"])
+        if old is None or int(old["weighted_bound"]) <= row["weighted_bound"]:
+            known[row["instance_uid"]] = row
+    with target.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(known[uid] for uid in sorted(known))
+    gains = sorted(float(r["weight"]) / float(r["uniform_weight"]) for r in rows)
+    print(f"{len(rows)} bounds -> {target}")
+    print(f"weight over uniform weight: min {gains[0]:.3f}, median {gains[len(gains) // 2]:.3f}, "
+          f"max {gains[-1]:.3f}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """One row per instance: bound, and objective, gap, time, memory per run."""
     from cgshop2027_pyutils.io import read_solution
@@ -677,14 +734,19 @@ def cmd_report(args: argparse.Namespace) -> int:
     stats = {r["instance_uid"]: r for r in json.loads(catalog_path.read_text(encoding="utf-8"))}
     stats = {uid: r for uid, r in stats.items() if args.suite in ("all", r["suite"])}
     runs = args.run or evaluate.run_names()
+    weighted = _read_bounds()
     rows = []
     for uid, stat in sorted(stats.items()):
+        area = stat["lower_bound"]
+        bound = max(area, weighted.get(uid, 0))
         row = {
             "instance_uid": uid,
             "k": stat["number_of_cutters"],
             "region_area": stat["region_area"],
             "cutter_width": stat["cutter_width"],
-            "lower_bound": stat["lower_bound"],
+            "area_bound": area,
+            "weighted_bound": weighted.get(uid, ""),
+            "lower_bound": bound,
         }
         for run in runs:
             path = evaluate.solution_path(run, uid)
@@ -695,7 +757,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             solution = read_solution(path)
             objective = solution.max_tour_length
             row[f"{run}_objective"] = objective
-            row[f"{run}_gap"] = round(objective / stat["lower_bound"], 4)
+            row[f"{run}_gap"] = round(objective / bound, 4)
             row[f"{run}_seconds"] = solution.meta.get("wall_seconds", "")
             row[f"{run}_memory_gb"] = solution.meta.get("peak_memory_gb", "")
         rows.append(row)
@@ -1036,6 +1098,17 @@ def build_parser() -> argparse.ArgumentParser:
     grind.add_argument("--polish-max", type=float, default=120.0)
     grind.add_argument("--memory-gb", type=float, default=10.0)
     grind.set_defaults(func=cmd_grind)
+
+    bound = subparsers.add_parser(
+        "bound", help="weighted area bound of every instance -> out/bounds.csv"
+    )
+    bound.add_argument("--instances", default=str(config.INSTANCES / "competition"))
+    bound.add_argument("--filter", default=None)
+    bound.add_argument("--limit", type=int, default=None)
+    bound.add_argument("-j", "--jobs", type=int, default=1)
+    bound.add_argument("--iterations", type=int, default=6000)
+    bound.add_argument("--time-limit", type=float, default=600.0, help="seconds per instance")
+    bound.set_defaults(func=cmd_bound)
 
     report = subparsers.add_parser(
         "report", help="write out/results.csv: bound, objective, gap, time and memory"

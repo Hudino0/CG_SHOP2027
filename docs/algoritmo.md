@@ -223,9 +223,9 @@ arriba a par.
 ### 4.1 Cotas que estudié y descarté (razonado, no implementado)
 
 - **Empaquetado por ventanas** (pesos `u` en las celdas con suma `≤ 1` en cada
-  rebanada que un paso puede añadir): generaliza el Teorema 4, pero en una
-  región con una línea de `w` celdas dentro de `R` por cada celda no supera
-  `|R|/w`. Solo gana en puntas más estrechas que la cortadora en ambos ejes.
+  rebanada que un paso puede añadir). Lo descarté por razonamiento y fue un
+  error: medido, sube la cota en casi todas las instancias. Ahora es el
+  Teorema 11 (§4.2).
 - **Testigos con vecindades disjuntas** (estilo Fekete–Mitchell–Schmidt): en
   regiones gordas da `≈ |R|/(2w)`, la mitad de la cota de área. Solo sirve en
   regiones tipo esqueleto.
@@ -237,6 +237,125 @@ arriba a par.
 Consecuencia honesta: la **brecha certificada** que reporto es contra la cota
 de área. En regiones con borde irregular esa cota no es alcanzable, así que una
 brecha de 1.15 no significa 15 % de mejora posible.
+
+### 4.2 Cota de área ponderada (demostrada, implementada)
+
+Implementación: `bounds.py`, orden `cg27 bound`.
+
+Sea `D_d = (C + d) ∖ C` el conjunto de celdas que añade un paso unitario en
+la dirección `d` (una de las cuatro).
+
+**Teorema 11 (cota de área ponderada).** Sea `u ≥ 0` un peso sobre las celdas
+de `R` (cero fuera) tal que
+
+    u(p + D_d) ≤ 1     para todo punto p de la retícula y toda dirección d,
+
+y sea `M = max_p u(p + C)`. Entonces
+`OPT(R, C, k) ≥ (u(R) − k·M) / k + 1` (cuando la cota es mayor que 1).
+
+*Demostración.* Un tour cerrado de longitud `ℓ ≥ 1` visita `p₀, …, p_{ℓ−1}` y
+vuelve a `p₀`. Las celdas que barre están en `p₀ + C` y en los conjuntos
+`(pᵢ + C) ∖ (pᵢ₋₁ + C) = pᵢ₋₁ + D_d`, `i = 1 … ℓ−1`. El peso que barre es
+entonces `≤ M + (ℓ − 1)`. Los `k` tours barren todo `R`, así que
+`u(R) ≤ k·(M + max ℓ − 1)`. ∎
+
+Con `u ≡ 1/χ(C)` sale el Teorema 4. El mejor `u` es el óptimo de un programa
+lineal de empaquetado: maximizar `u(R)` con esas restricciones. Su dual es
+cubrir `R` de forma fraccionaria con «barras» (los conjuntos `p + D_d`): un
+tour es una cubierta entera por barras que además es un camino cerrado.
+
+**Por qué gana.** Donde la región es más fina que la cortadora, un paso barre
+pocas celdas de `R`, y esas celdas pueden llevar más peso. En una región
+gorda `u` queda cerca de `1/χ` y la cota casi no cambia.
+
+**Lema 12 (retícula).** Sea la instancia `(R, C)` la instancia gruesa
+`(R′, C′)` escalada por `g` (todas las del concurso lo son, §2). Si `u′` es
+factible para `(R′, C′)`, entonces `u = u′/g` en cada celda fina es factible
+para `(R, C)`, con `u(R) = g·u′(R′)` y `M ≤ g·M′`.
+
+*Demostración.* Un paso fino en `x` desde `p = g·P + t`, `0 ≤ t_x, t_y < g`,
+añade una columna fina junto a cada extremo de fila de `C`. Esas columnas
+caen en las columnas gruesas del paso grueso desde `P`, y cada una se reparte
+entre dos filas gruesas: `g − t_y` celdas finas en la fila `J` y `t_y` en la
+`J + 1`. Entonces
+`u(p + D_d) = ((g − t_y)·u′(P + D′_d) + t_y·u′(P + (0,1) + D′_d)) / g ≤ 1`.
+Igual para un paso en `y`. Un sello fino es, del mismo modo, una combinación
+convexa de cuatro sellos gruesos, por `g`. ∎
+
+Por el Lema 12 el programa se resuelve en la retícula gruesa y la cota es
+`g·(u′(R′) − k·M′)/k + 1`, redondeada hacia arriba a par (Teorema 7). Por el
+Teorema 5 se usa la envolvente ortoconvexa de la cortadora.
+
+**Cálculo y certificado.** Cualquier `u` factible certifica la cota, sea
+óptimo o no. Por eso basta un método de primer orden (gradiente híbrido
+primal-dual de Chambolle–Pock, solo productos matriz-vector con
+`scipy.sparse`): el iterado se divide por su mayor suma de fila, lo que lo
+hace factible, y el iterado dual da una cota superior del óptimo que dice
+cuándo parar. Medido contra el óptimo exacto de HiGHS en dos instancias: 99.9 %
+del óptimo en 5 s (HiGHS: 18 s en una, sin terminar en 120 s en otra). El
+certificado es numérico (coma flotante de 64 bits, con un margen de 10⁻⁹);
+no está verificado en aritmética exacta.
+
+**Corolario 13 (cubierta entera por barras; no calculada).** Sea `B*` el
+menor número de barras `p + D_d` que cubren `R`, y `β` el menor número que
+cubre un sello. Entonces `OPT ≥ (B* − k·β)/k + 1`, y `B* ≥ max u(R)`.
+
+*Demostración.* Las `ℓ − 1` barras de los pasos de un tour, más `β` barras
+para su primer sello, cubren lo que el tour barre. ∎
+
+`B*` es un problema de cubierta por conjuntos; el Teorema 11 es su relajación
+lineal. No lo calculo.
+
+**Lo que esta cota no ve.** No ve la conexión: en una región tipo árbol de
+pasillos finos el tour recorre cada pasillo dos veces (ida y vuelta) y la
+cota cuenta una. Ahí la brecha certificada seguirá cerca de 2 aunque el tour
+sea óptimo.
+
+### 4.3 Identidad del desperdicio (demostrada, medida)
+
+**Proposición 14.** Sea `u` factible y sea `Nᵢ` el conjunto de celdas de `R`
+que el paso `i` barre por primera vez (en un orden fijo de los tours, con la
+envolvente como cortadora). Entonces
+
+    Σ_t ℓ_t  =  u(R) − Σ_t u(N_{t,0}) + k + Σ_pasos (1 − u(Nᵢ)),
+
+y cada término `1 − u(Nᵢ)` es `≥ 0`.
+
+*Demostración.* Cada celda de `R` está en exactamente un `Nᵢ` o un `N_{t,0}`
+(primer sello del tour `t`), así que `u(R) = Σ_t u(N_{t,0}) + Σ u(Nᵢ)`. Cada
+tour tiene `ℓ_t − 1` pasos que barren. `Nᵢ ⊆ pᵢ₋₁ + D_d`, luego
+`u(Nᵢ) ≤ 1`. ∎
+
+`1 − u(Nᵢ)` es el **desperdicio** del paso `i`: lo que ese paso cuesta de más
+respecto de lo que la cota exige. La suma de los desperdicios es exactamente
+la distancia entre el tour y la cota. Esto localiza la pérdida paso a paso,
+con precios demostrados en vez de con el conteo de celdas de §5.
+
+Medido en los tours de `best` (porcentaje de la longitud):
+
+| Instancia | Brecha nueva | Pasos sin nada nuevo | Pasos con `u(N) < 0.5` | Pasos con `0.5 ≤ u(N) < 0.9` |
+|---|---|---|---|---|
+| `bck2217_18k_1d6` (gorda) | 1.120 | 2.1 % | 3.2 % | 5.2 % |
+| `smo860323_6491_1d3` | 1.371 | 10.8 % | 11.1 % | 4.5 % |
+| `srpg41087_15k_1d7` (fractal) | 1.718 | 5.4 % | 22.1 % | 13.9 % |
+
+(Las columnas dan el desperdicio de cada clase de pasos.) Conclusión medida:
+el traslado puro pesa poco. Casi toda la pérdida está en **pasos parciales**:
+pasos cuyo frente cae en parte sobre celdas ya barridas o fuera de la región.
+
+### 4.4 Búsqueda guiada por el desperdicio (heurística, medida)
+
+`Refiner.set_price` recibe `u`. `lns` calcula por zona
+`pasos − peso` (Proposición 14 agregada por bloques) y sortea el 70 % de sus
+ventanas en proporción a ese número; el resto sigue uniforme. La
+factibilidad no cambia: solo cambia dónde se prueba.
+
+Medido (40 s de `lns` desde el tour de `best`, dos semillas, guiada contra
+uniforme): `bck2217_18k_1d6` 3388/3380 contra 3386/3386;
+`smo860323_6491_1d3` 3210/3212 contra 3214/3214; `smo4975_26k_1p9` 5504/5516
+contra 5510/5512; `srpg41087_15k_1d7` sin cambio en ambas. La guía acepta
+algo más de pasos, pero la diferencia es de décimas de punto y está dentro
+del ruido. **No es una mejora demostrada ni grande.**
 
 ## 5. Dónde se pierde longitud (medido)
 

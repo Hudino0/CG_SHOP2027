@@ -179,13 +179,15 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/scale.py` | Solves on the coarse lattice of an instance and lifts the tours. See 5.7. |
 | `src/cgshop27/solvers/lanes.py` | The strip solver: no blocks, any cutter width. See 5.8. |
 | `src/cgshop27/solvers/anchors.py` | The cover-first solver. See 5.13. |
+| `src/cgshop27/bounds.py` | The weighted area bound (a lower bound from a linear program). See 5.14. |
+| `results/` | The measured results: the table for each instance, the bounds and the upload file. In git. |
 | `docs/algoritmo.md` | The statement, the proofs of feasibility and the lower bounds. |
 | `src/cgshop27/overlap.py` | Measures how much of the region two or more tours sweep. |
 | `src/cgshop27/gridgraph.py` | Draws the block grid graph of the `fekete` solver. |
 | `src/cgshop27/pipeline.py` | Solves, verifies and draws the grid graph for several solvers. Writes the report. |
 | `docs/PROMPT_FABLE.md` | The prompt for a long, rigorous solver session. |
 | `docs/revision_sistematica_literatura.pdf` | The literature review. It assumes a 1x1 cutter; the real cutters differ. |
-| `src/cgshop27/cli.py` | The `cg27` command and its 16 sub-commands. |
+| `src/cgshop27/cli.py` | The `cg27` command and its 17 sub-commands. |
 
 The pipeline writes into these directories. Git ignores them, except `instances/`.
 
@@ -716,6 +718,31 @@ cg27 solve -j 4 --solver anchors --run anchors --time-limit 20 --time-max 180
 cg27 polish -j 4 --run best_coarse --into best --coarse-into best_coarse \
      --time-limit 60 --time-max 600
 ```
+
+### 5.14 A stronger lower bound from a linear program
+
+The area bound gives the same weight to each region cell. The **weighted
+area bound** gives each cell its own weight `u`. The rule is: no step of the
+cutter can add cells with a total weight above 1. Then a tour of length `L`
+sweeps a weight of at most `L` plus one stamp, and the total weight of the
+region is a lower bound. The proof is in `docs/algoritmo.md` (Theorem 11).
+
+The best weights are the solution of a linear program. Where the region is
+thinner than the cutter, a step adds few region cells, and these cells get
+more weight. Thus the bound is much higher for regions with fine features.
+
+Each feasible `u` is a proof of the bound, optimal or not. For this reason a
+simple first-order method is sufficient. It uses `scipy.sparse` only.
+
+```bash
+cg27 bound -j 4          # writes out/bounds.csv (250 instances: about 30 minutes)
+cg27 report --run best   # the gap now uses the better of the two bounds
+```
+
+The weights also show where a tour wastes steps: `steps - weight` of a zone
+is the number of steps there that the bound does not ask for (Proposition 14).
+`cg27 polish` now uses this number to select 70 % of the windows of its
+search. The measured gain of this selection is very small.
 
 ## 6. What is next
 
