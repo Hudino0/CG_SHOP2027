@@ -28,10 +28,10 @@ cota es el máximo de la cota de área y la **cota de área ponderada**
 
 | Run | Válidas | Brecha mín | Mediana | Máx | Puntaje local |
 |---|---|---|---|---|---|
-| `baseline` | 250/250 | 1.172 | 1.790 | 3.331 | 128.41 |
-| `fekete` (30 s) | 250/250 | 1.101 | 1.369 | 2.409 | 206.05 |
-| `lanes` (20 s) | 250/250 | 1.099 | 1.364 | 1.991 | 211.82 |
-| `best` (mejor por instancia + `polish` con LNS) | 250/250 | 1.073 | 1.241 | 1.722 | 250.00 |
+| `baseline` | 250/250 | 1.172 | 1.790 | 3.331 | 127.59 |
+| `fekete` (30 s) | 250/250 | 1.101 | 1.369 | 2.409 | 204.67 |
+| `lanes` (20 s) | 250/250 | 1.099 | 1.364 | 1.991 | 210.39 |
+| `best` (mejor por instancia + `polish` con LNS) | 250/250 | 1.069 | 1.237 | 1.716 | 250.00 |
 
 Con solo la cota de área, `best` tenía brecha 1.075 / 1.268 / 2.053: los
 tours son los mismos, lo que mejoró es el certificado. 87 instancias tienen
@@ -61,7 +61,7 @@ cg27 bound -j 4      # 250 instancias, 4 núcleos; la más lenta 627 s
 
 Sube en 235 de 250 instancias y nunca baja. La mejora es chica en la mediana
 (1.3 %) y grande en las regiones con rasgos finos (hasta 30 %): la brecha
-máxima baja de 2.053 a 1.722. La segunda fila sale de la cota superior dual:
+máxima baja de 2.053 a 1.716. La segunda fila sale de la cota superior dual:
 el método de primer orden deja menos de 0.3 % sin recoger.
 
 ## `best` contra `fekete` (longitud máxima, % más corta)
@@ -123,3 +123,13 @@ pulido ni más arranques dan ya más de unas décimas. Para bajar más hace
 falta un movimiento nuevo (por ejemplo, rehacer la partición entre tours
 para k > 1 o un vecindario que mueva tramos largos) o una cota inferior
 mejor para saber cuánto margen queda.
+
+## Ronda con peine y ventanas guiadas (semilla 41)
+
+`polish` con el movimiento de peine (Teorema B) y las ventanas guiadas por
+desperdicio (Proposición 14) activos, desde `best_coarse`, 50–450 s por
+instancia: 220/250 instancias más cortas, ganancia mediana 0.19 %, máxima
+2.05 %. Brecha de `best`: 1.069 / 1.237 / 1.716 (antes 1.073 / 1.241 / 1.722).
+Es del mismo orden que la ronda anterior sin estos movimientos (0.24 %): la
+búsqueda local está saturada, y la mejora siguiente pide un constructor nuevo
+(Conjetura C en `docs/fable_el_genio.md`).

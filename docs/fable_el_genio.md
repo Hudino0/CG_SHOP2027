@@ -62,7 +62,7 @@ largo `X`.
 ## 4. Qué está medido y qué no
 
 - La cota del Teorema 11 sube en 235 de 250 instancias (mediana +1.3 %,
-  máximo +30 %). Brecha mediana de `best`: 1.241; máxima: 1.722.
+  máximo +30 %). Brecha mediana de `best`: 1.237; máxima: 1.716.
 - Proposición 14 medida en tres tours: el traslado vacío es 2–11 % de la
   longitud; el resto de la pérdida son pasos parciales.
 - Sorteo de ventanas por desperdicio: ganancia dentro del ruido.
