@@ -179,6 +179,7 @@ You can test any idea against this model directly.
 | `src/cgshop27/solvers/scale.py` | Solves on the coarse lattice of an instance and lifts the tours. See 5.7. |
 | `src/cgshop27/solvers/lanes.py` | The strip solver: no blocks, any cutter width. See 5.8. |
 | `src/cgshop27/solvers/anchors.py` | The cover-first solver. See 5.13. |
+| `src/cgshop27/solvers/zigzag.py` | Lanes with teeth across the thin corridors that lie on a cycle. See `docs/algoritmo.md` §4.5. |
 | `src/cgshop27/bounds.py` | The weighted area bound (a lower bound from a linear program). See 5.14. |
 | `results/` | The measured results: the table for each instance, the bounds and the upload file. In git. |
 | `docs/algoritmo.md` | The statement, the proofs of feasibility and the lower bounds. |

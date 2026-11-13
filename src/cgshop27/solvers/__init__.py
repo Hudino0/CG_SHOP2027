@@ -5,6 +5,7 @@ from .boustrophedon import solve as boustrophedon
 from .fekete import solve as _fekete
 from .lanes import solve as _lanes
 from .scale import scaled
+from .zigzag import solve as _zigzag
 
 # The compiled block search holds a block in one 64-bit mask, so a block is at
 # most 7 cells wide. `scaled` solves on the instance's own coarse lattice
@@ -17,6 +18,10 @@ lanes = scaled(_lanes)
 # Anchors: a low-spill cover by stamps first, then a tour, then the refiner.
 anchors = scaled(_anchors)
 
-SOLVERS = {"boustrophedon": boustrophedon, "fekete": fekete, "lanes": lanes, "anchors": anchors}
+# Zigzag: lanes, with teeth across the thin corridors that lie on a cycle.
+zigzag = scaled(_zigzag)
 
-__all__ = ["SOLVERS", "anchors", "boustrophedon", "fekete", "lanes", "scaled"]
+SOLVERS = {"boustrophedon": boustrophedon, "fekete": fekete, "lanes": lanes, "anchors": anchors,
+           "zigzag": zigzag}
+
+__all__ = ["SOLVERS", "anchors", "boustrophedon", "fekete", "lanes", "scaled", "zigzag"]

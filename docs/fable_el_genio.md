@@ -58,6 +58,9 @@ largo `X`.
 | Consecuencia | El redondeo solo existe en la dirección perpendicular a los carriles. De través es `≤ w` en total. | Lema A y Teorema B. | Demostrado para rectángulos | `_comb_cover` prueba las dos orientaciones. |
 | Costo de fase | Con paredes irregulares, una orientación y una fase cuestan `Σ franjas (extensión + conector)`. Se calcula exacto para las `2w` opciones. | Definición. | Fórmula exacta; que el tour final la alcance es heurístico | `refine.py` (`_comb_cover`). |
 | **Conjetura C (T-join)** | Un pasillo con `H < 2w` no admite ida y vuelta eficiente. Sobre el grafo de pasillos, el óptimo es la cota más un T-join de peso mínimo: se duplican solo los pasillos finos necesarios para que todo grado sea par. | Falta demostrar. | **Conjetura** | Ninguno todavía. |
+| **Lema D (paridad de vueltas)** | Sea `q` un punto de un agujero. El número de vueltas del tour alrededor de `q` no cambia si el tour se modifica dentro de una ventana simplemente conexa que no contiene a `q`. En particular no cambia la paridad de cruces de ninguna sección de un pasillo que rodea al agujero. | El arco viejo y el nuevo son homotópicos en el plano sin `q`. | Demostrado | Explica por qué `Refiner.lns` no convierte dos carriles en zigzag; motiva `solvers/zigzag.py`. |
+| **Lema E (pasillo puente)** | Si un pasillo es un puente de la región y hay celdas a distancia `X` más allá de una sección, todo tour cerrado cruza esa sección un número par de veces y mide al menos `2(X − w)`. La cota de área solo da `X·H/w`. Con `H < 2w` la cota de área queda corta hasta en un factor `2w/H`. | El tour es cerrado: entra y sale. | Demostrado | Explica parte de la brecha 1.5–1.7 de las regiones fractales: es holgura de la cota, no del tour. |
+| **Proposición F (costo por paridad)** | Un pasillo `w < H < 2w` de largo `X` cuesta `X·H/w` con cruce impar (dientes de través) y `2X` con cruce par (dos carriles). Con `H ≥ 2w` las dos paridades cuestan `X·H/w + O(w)` (Teorema B). | Cuenta directa; los dientes añaden una barra entera por paso. | Demostrado para rectángulos | `solvers/zigzag.py` (`zones`, `_segments`). |
 
 ## 4. Qué está medido y qué no
 
@@ -82,6 +85,21 @@ largo `X`.
   diferencia (0.0–0.4 %) es del mismo tamaño que la diferencia entre
   semillas. **Está dentro del ruido.** Por eso `Refiner.comb` está apagado
   por defecto y ninguna solución guardada cambió con esta prueba.
+
+- Regiones sintéticas, cortador 6×6, `k = 1` (longitud; menos es mejor):
+
+| Región | `lanes` | `fekete` | `zigzag` | Cota de área |
+|---|---|---|---|---|
+| Pasillo 120×8 (puente) | 232 | 232 | 232 | 160 |
+| Pasillo 120×15 (puente) | 300 | – | – | 300 |
+| Anillo 96×96, ancho 8 | 684 | 672 | **472** | 469 |
+| Anillo 96×96, ancho 9 | 696 | 672 | **528** | 522 |
+| Anillo 96×96, ancho 10 | 700 | 672 | **584** | 573 |
+| Anillo 96×96, ancho 15 | 876 | 876 | 876 | 810 |
+
+  El pasillo puente confirma el Lema E (232 ≈ 2(X − w) + 4, la cota de área
+  no se alcanza). El anillo confirma la Proposición F: `zigzag` llega a la
+  cota y los otros pagan dos carriles.
 
 ## 5. Lo que queda abierto
 

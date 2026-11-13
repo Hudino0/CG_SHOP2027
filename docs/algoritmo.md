@@ -357,6 +357,35 @@ contra 5510/5512; `srpg41087_15k_1d7` sin cambio en ambas. La guía acepta
 algo más de pasos, pero la diferencia es de décimas de punto y está dentro
 del ruido. **No es una mejora demostrada ni grande.**
 
+### 4.5 Paridad de vueltas y el constructor `zigzag`
+
+El número de vueltas del tour alrededor de un agujero no cambia con un
+movimiento dentro de una ventana que no contiene al agujero (Lema D en
+`docs/fable_el_genio.md`). Un pasillo con `w < H < 2w` cuesta `X·H/w` si el
+tour lo cruza una vez (dientes de través) y `2X` si lo cruza dos veces (dos
+carriles). La búsqueda local no puede pasar de una opción a la otra: la
+decisión es del constructor.
+
+`solvers/zigzag.py` hace esto, en cada una de las dos orientaciones:
+
+1. Marca los pasillos finos a lo largo de los carriles: tramo de columna en
+   `(h, 2h)` y tramo de fila de al menos `3w`.
+2. Construye el grafo de pasillos: los nodos son las zonas finas y las
+   componentes del resto; una arista por cada contacto.
+3. Conserva las zonas con dos contactos o más que no son puentes del grafo:
+   están en un ciclo. Un pasillo puente se cruza siempre un número par de
+   veces (Lema E), así que ahí se dejan los dos carriles.
+4. Da a esas zonas carriles en la otra orientación (los dientes) y enruta
+   todos los carriles juntos con la misma búsqueda de `lanes`.
+
+Si no hay zonas, el resultado es el de `lanes`. La elección de paridad no es
+exacta: donde los pasillos impares no forman un subgrafo euleriano, el
+enrutado paga el traslado (el T-join de la Conjetura C).
+
+```bash
+cg27 solve --solver zigzag --run zz --instances instances/competition -j 4 --time-limit 30
+```
+
 ## 5. Dónde se pierde longitud (medido)
 
 Un hecho que guía el diseño:
